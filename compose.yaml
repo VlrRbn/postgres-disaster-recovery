@@ -1,0 +1,36 @@
+services:
+  postgres:
+    image: postgres:17.11-bookworm@sha256:639ab7ceb90e13123085b741fb31ef493fba25463002f6da665352e7b534b652
+    environment:
+      POSTGRES_DB: orders
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD_FILE: /run/secrets/postgres_password
+      POSTGRES_INITDB_ARGS: --data-checksums
+    secrets:
+      - postgres_password
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./sql/001-orders.sql:/docker-entrypoint-initdb.d/001-orders.sql:ro
+    healthcheck:
+      test: [CMD-SHELL, 'pg_isready -h 127.0.0.1 -U postgres -d orders']
+      interval: 2s
+      timeout: 3s
+      retries: 30
+      start_period: 10s
+    stop_grace_period: 30s
+    shm_size: 128mb
+    mem_limit: 512m
+    cpus: 1.0
+    networks:
+      - database
+
+secrets:
+  postgres_password:
+    file: ${PGDR_SECRET_FILE:-./.local/postgres_password}
+
+volumes:
+  pgdata:
+
+networks:
+  database:
+    internal: true
