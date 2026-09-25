@@ -2,6 +2,16 @@ services:
   postgres:
     build:
       context: ./docker/postgres
+    command:
+      - postgres
+      - -c
+      - wal_level=replica
+      - -c
+      - archive_mode=on
+      - -c
+      - archive_command=pgbackrest --stanza=orders archive-push %p
+      - -c
+      - archive_timeout=60s
     environment:
       POSTGRES_DB: orders
       POSTGRES_USER: postgres
@@ -11,6 +21,8 @@ services:
       - postgres_password
     volumes:
       - pgdata:/var/lib/postgresql/data
+      - pgrepo:/var/lib/pgbackrest
+      - ./pgbackrest/pgbackrest.conf:/etc/pgbackrest/pgbackrest.conf:ro
       - ./sql/001-orders.sql:/docker-entrypoint-initdb.d/001-orders.sql:ro
     healthcheck:
       test: [CMD-SHELL, 'pg_isready -h 127.0.0.1 -U postgres -d orders']
@@ -31,6 +43,7 @@ secrets:
 
 volumes:
   pgdata:
+  pgrepo:
 
 networks:
   database:

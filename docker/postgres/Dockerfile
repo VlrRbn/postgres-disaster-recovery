@@ -7,4 +7,5 @@ RUN set -eux; \
     apt-get install -y --no-install-recommends pgbackrest=2.59.1-1.pgdg12+1; \
     test "$(postgres --version)" = "$postgres_version"; \
     test "$(pgbackrest version)" = 'pgBackRest 2.59.1'; \
-    rm -rf /var/lib/apt/lists/*
+    rm -rf /var/lib/apt/lists/*; \
+    install -d -o postgres -g postgres -m 0750 /var/lib/pgbackrest

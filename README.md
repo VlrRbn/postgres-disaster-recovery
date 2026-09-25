@@ -1,25 +1,25 @@
 # PostgreSQL Disaster Recovery
 
 A PostgreSQL recovery lab built in small, verifiable milestones. The implemented
-local foundation combines a database image built from a digest-pinned base, persistent storage,
-validated order data, and a repeatable container recreation exercise.
+local foundation combines a database image built from a digest-pinned base,
+persistent storage, WAL archiving, physical backups, and repeatable verification.
 
 ## Project Status
 
-The **Local PostgreSQL Foundation** is released as `v0.1.0`. The acceptance path
-verifies data persistence and continued writes on a single Docker host:
+The **Local PostgreSQL Foundation** is released as `v0.1.0`. Work toward `v0.2.0`
+adds a locally verified backup repository and WAL archiving on one Docker host:
 
 ```text
 empty database volume
   -> PostgreSQL initialization and readiness
-  -> validated order records
-  -> container recreation with the same volume
-  -> exact record comparison and successful new writes
+  -> pgBackRest repository initialization and WAL archive check
+  -> validated order records and a full physical backup
+  -> container recreation with both volumes retained
+  -> record comparison, new writes, and backup integrity checks
 ```
 
 Backup restoration, point-in-time recovery, and RPO/RTO measurement remain
-planned. Work toward `v0.2.0` starts with a locally verified PostgreSQL image
-containing pgBackRest; backup storage and WAL archiving are not configured yet.
+planned. Release `v0.2.0` follows the separate restore acceptance step.
 
 ## Local PostgreSQL Foundation
 
@@ -57,6 +57,19 @@ in [foundation evidence](evidence/local-foundation-acceptance-20260924.md).
 The derived image passes the same scenario and verifies both PostgreSQL and
 pgBackRest versions; see [image acceptance evidence](evidence/pgbackrest-image-acceptance-20260925.md).
 
+## Backup Repository And WAL Archiving
+
+A separate `pgrepo` volume stores pgBackRest backups and archived WAL. `make up`
+initializes the `orders` stanza and verifies that PostgreSQL can archive a WAL
+segment. `make backup` creates a full physical backup and checks repository
+integrity. Retention keeps two completed full backups and expires older copies
+after a subsequent successful backup.
+
+The acceptance scenario also rejects missing repository metadata, an empty
+backup set, and a deliberately damaged file in its disposable test repository.
+See [backup operations](docs/backup-wal-archiving.md) and
+[acceptance evidence](evidence/backup-wal-acceptance-20260925.md).
+
 ## Security Defaults
 
 - official PostgreSQL base image pinned to an immutable digest;
@@ -93,10 +106,15 @@ default Compose project `postgres-dr-local`.
 | --- | --- | --- |
 | `make check` | Check shell scripts, Compose configuration, and diff formatting | No database is started |
 | `make image` | Build the PostgreSQL image with pgBackRest | Local image and build cache; no database is started |
-| `make up` | Generate or reuse the password, build the image, start PostgreSQL, and wait for readiness | Database running in the background |
+| `make up` | Generate or reuse the password, build and start PostgreSQL, initialize the repository, and check WAL archiving | Database running with initialized backup storage; no backup yet on first startup |
 | `make psql` | Open a SQL session in the running database | Database stays running when the session closes |
-| `make acceptance` | Build and test a separate disposable database, then remove its container, network, and volume | Test image and build cache; interactive database is unaffected |
-| `make down` | Stop and remove the interactive container and network | Database volume, password file, image, and build cache |
+| `make acceptance` | Test persistence, WAL archiving, a full backup, and failure detection in a separate project | Test image and build cache; test container, network, and both volumes removed |
+| `make down` | Stop and remove the interactive container and network | Database and backup volumes, password file, image, and build cache |
+| `make backup-init` | Initialize or reuse the stanza and check WAL archiving; also run by `make up` | Repository metadata and archived WAL |
+| `make backup-check` | Force a WAL switch and wait for the segment to reach the repository | New archived WAL; no backup is created |
+| `make backup` | Check archiving, create a full backup, apply retention, and verify repository integrity | Completed physical backup and required WAL |
+| `make backup-info` | Display available backups and WAL ranges | Existing data and backups unchanged |
+| `make backup-verify` | Verify completed backup files and archives; reject empty or invalid results | Existing data and backups unchanged |
 
 `make up` already builds the image, so a separate `make image` is optional.
 `make acceptance` is a standalone test and does not require `make up` first.
@@ -110,7 +128,8 @@ make check
 make up
 ```
 
-The startup command returns after the container is healthy. PostgreSQL continues
+The startup command returns after PostgreSQL is healthy and the repository and
+WAL checks pass. It does not create a backup automatically. PostgreSQL continues
 running in the background. Inspect its status and follow its logs:
 
 ```bash
@@ -143,8 +162,32 @@ Check the installed backup tool while the database container is running:
 bash scripts/compose.sh exec --user postgres postgres pgbackrest version
 ```
 
-Expected output: `pgBackRest 2.59.1`. Backup and restore commands are not configured
-in this step.
+Expected output: `pgBackRest 2.59.1`.
+
+## Create And Inspect A Backup
+
+With the interactive database running, create a full backup:
+
+```bash
+make backup
+make backup-info
+```
+
+`make backup` checks WAL delivery, creates the copy, and prints an integrity
+report with `status: ok`. `make backup-info` shows the completed backup label
+and WAL range. Backups cover the whole PostgreSQL cluster, including `orders`.
+
+To repeat the checks separately:
+
+```bash
+make backup-check
+make backup-verify
+```
+
+`make backup-check` verifies current WAL delivery; it does not create a backup.
+`make backup-verify` checks existing copies and fails if none exists or a file is
+invalid. Neither command restores data. See [backup operations](docs/backup-wal-archiving.md)
+for configuration, retention, and troubleshooting.
 
 ## Stop And Resume The Lab
 
@@ -154,7 +197,8 @@ Stop the interactive database and remove its container and network:
 make down
 ```
 
-The database volume and `.local/postgres_password` are retained. To resume:
+Both named volumes (`pgdata` and `pgrepo`) and `.local/postgres_password` are
+retained. To resume:
 
 ```bash
 make up
@@ -162,7 +206,7 @@ make psql
 ```
 
 Run `SELECT * FROM orders;` to inspect the retained rows. Exit with `\q` and
-run `make down` when finished.
+run `make backup-info` to inspect retained backups. Run `make down` when finished.
 
 ## Remove The Local Image
 
@@ -176,7 +220,7 @@ If the image is used by the interactive container, run `make down` first.
 The image name above assumes the default project; a `PGDR_PROJECT` override
 changes the generated image name.
 
-Removing an image does not delete the PostgreSQL volume, local password, or
+Removing an image does not delete the database or backup volume, local password, or
 Docker build cache. The next `make up` rebuilds the image and reuses the retained
 volume. Images built by acceptance use separate `postgres-dr-test-*` names.
 
@@ -190,7 +234,7 @@ make acceptance
 ```
 
 On success, the command prints the version and persistence `PASS` messages and
-removes its test container, network, and data volume. It does not leave a test
+removes its test container, network, database volume, and backup volume. It does not leave a test
 database running, so a separate `make down` is not needed for acceptance.
 If cleanup fails, the command reports the test project and retained secret path.
 
@@ -200,9 +244,10 @@ If cleanup fails, the command reports the test project and retained secret path.
 | --- | --- |
 | Local PostgreSQL deployment | Complete locally |
 | Container recreation and data comparison | Complete locally |
-| Pull-request CI | Active; updated image path awaits PR validation |
-| PostgreSQL image with pgBackRest | Complete locally |
-| Physical backup and WAL archiving | Planned |
+| Pull-request CI | Active; backup changes await PR validation |
+| PostgreSQL image with pgBackRest | Complete |
+| Physical backup and WAL archiving | Complete locally |
+| Restore into an empty volume | Planned |
 | Point-in-time recovery | Planned |
 | RPO/RTO measurement | Planned |
 
@@ -213,25 +258,28 @@ See the [delivery roadmap](docs/roadmap.md) for milestone scope,
 ## Safety Boundary
 
 The interactive lab uses Compose project `postgres-dr-local` by default.
-`make acceptance` creates its own temporary project, password, and data volume.
+`make acceptance` creates its own temporary project, password, and two volumes.
 Its exit handler removes those test resources; if cleanup fails, it reports the
 project and retained secret path for manual inspection. It does not use the
-interactive lab's database volume.
+interactive lab's volumes. The corruption test modifies only a file in the
+disposable backup repository and replaces it with the saved original before
+the final integrity check.
 
-`make down` retains the interactive volume. Initialization SQL runs only when
+`make down` retains both interactive volumes. Initialization SQL runs only when
 the volume is empty, so editing the SQL file does not migrate an existing database.
 Repeating password setup preserves the local file and does not rotate the
 password in an initialized database.
 
 ## Production Boundaries
 
-The pgBackRest executable is installed and runnable as `postgres`. No backup
-repository, WAL archive command, or recovery automation is configured in this
-step. Package dependencies resolve from live APT repositories.
+Backups and WAL are stored on the same Docker host as the database, without
+repository encryption, scheduling, or off-host replication. Retention is
+configured but multi-backup expiration is not exercised by the current acceptance
+run. Package dependencies resolve from live APT repositories.
 
-This repository currently verifies persistence across a graceful container
-recreation on one Docker host. That host is a single failure domain, and its
-named volume is not a backup. Disk loss, crash recovery, off-host restoration,
+The current checks prove local backup creation, WAL delivery, file integrity,
+and persistence across container recreation. They do not yet demonstrate
+restoration from those backups. Disk loss, crash recovery, off-host restoration,
 replication, and failover remain outside the verified boundary.
 
 SQL exercises use the bootstrap administrator over the local container socket.

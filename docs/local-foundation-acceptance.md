@@ -11,7 +11,7 @@ The foundation is complete when all of the following are demonstrated locally:
 - Container recreation produces a different container ID on the same volume.
 - Ordered snapshots of all stored order fields match byte for byte.
 - A new insert succeeds after recreation and the total order count becomes 21.
-- The test container, network, and volume are removed after the run.
+- The test container, network, database volume, and backup volume are removed after the run.
 - Repeating local password setup preserves the existing password file.
 - The generated local password has mode `0600` and is ignored by Git.
 
@@ -45,6 +45,9 @@ records the same checks with pgBackRest installed. The script prints its result 
 terminal; it does not generate a persistent Markdown report automatically.
 GitHub CI runs the static checks and database scenario for pull requests and
 commits on `main`.
+
+The same command now also runs the [backup and WAL acceptance checks](backup-wal-archiving.md#acceptance-criteria),
+including rejection of an empty or damaged test backup.
 
 ## Interpretation
 
