@@ -1,12 +1,12 @@
 # PostgreSQL Disaster Recovery
 
 A PostgreSQL recovery lab built in small, verifiable milestones. The implemented
-local foundation combines a digest-pinned database image, persistent storage,
+local foundation combines a database image built from a digest-pinned base, persistent storage,
 validated order data, and a repeatable container recreation exercise.
 
 ## Project Status
 
-The **Local PostgreSQL Foundation** is complete locally. The acceptance path
+The **Local PostgreSQL Foundation** is released as `v0.1.0`. The acceptance path
 verifies data persistence and continued writes on a single Docker host:
 
 ```text
@@ -18,14 +18,19 @@ empty database volume
 ```
 
 Backup restoration, point-in-time recovery, and RPO/RTO measurement remain
-planned. The first release target is `v0.1.0`; publication follows PR merge and
-successful CI on `main`.
+planned. Work toward `v0.2.0` starts with a locally verified PostgreSQL image
+containing pgBackRest; backup storage and WAL archiving are not configured yet.
 
 ## Local PostgreSQL Foundation
 
-Docker Compose runs PostgreSQL 17.11 from the official Debian Bookworm image,
-pinned to a multi-platform digest. A named volume stores the database files.
-Initialization enables data page checksums and creates the `orders` table.
+Docker Compose builds the database image from the official PostgreSQL 17.11
+Debian Bookworm base pinned to a multi-platform digest. The Dockerfile installs
+pgBackRest `2.59.1-1.pgdg12+1` and verifies that PostgreSQL was not upgraded.
+A named volume stores the database files. Initialization enables data page
+checksums and creates the `orders` table.
+
+The official entrypoint and database startup behavior are inherited.
+See [pgBackRest image](docs/pgbackrest-image.md) for the build and version contract.
 
 | Field | Contract |
 | --- | --- |
@@ -48,11 +53,14 @@ ordered CSV snapshots must match byte for byte, and a new insert must succeed.
 
 The same run checks that data checksums are enabled and that PostgreSQL rejects
 a negative order amount with SQLSTATE `23514`. The completed local run is recorded
-in [acceptance evidence](evidence/local-foundation-acceptance-20260924.md).
+in [foundation evidence](evidence/local-foundation-acceptance-20260924.md).
+The derived image passes the same scenario and verifies both PostgreSQL and
+pgBackRest versions; see [image acceptance evidence](evidence/pgbackrest-image-acceptance-20260925.md).
 
 ## Security Defaults
 
-- official PostgreSQL image pinned to an immutable digest;
+- official PostgreSQL base image pinned to an immutable digest;
+- pgBackRest package installed at an exact reviewed version;
 - generated local password stored outside Git with file mode `0600`;
 - password mounted through a Compose file secret;
 - internal database network with no published host port;
@@ -65,6 +73,7 @@ in [acceptance evidence](evidence/local-foundation-acceptance-20260924.md).
 Linux
 Docker Engine
 Docker Compose v2 or newer
+Docker Buildx
 Bash
 Python 3
 Make
@@ -72,26 +81,48 @@ Git
 ShellCheck
 ```
 
-The first run downloads the pinned PostgreSQL image.
+The first build downloads the pinned PostgreSQL base and packages from the
+Debian and PostgreSQL APT repositories.
+
+## Local Commands
+
+Run these commands from the repository root. The interactive examples use the
+default Compose project `postgres-dr-local`.
+
+| Command | What It Does | What Remains Afterwards |
+| --- | --- | --- |
+| `make check` | Check shell scripts, Compose configuration, and diff formatting | No database is started |
+| `make image` | Build the PostgreSQL image with pgBackRest | Local image and build cache; no database is started |
+| `make up` | Generate or reuse the password, build the image, start PostgreSQL, and wait for readiness | Database running in the background |
+| `make psql` | Open a SQL session in the running database | Database stays running when the session closes |
+| `make acceptance` | Build and test a separate disposable database, then remove its container, network, and volume | Test image and build cache; interactive database is unaffected |
+| `make down` | Stop and remove the interactive container and network | Database volume, password file, image, and build cache |
+
+`make up` already builds the image, so a separate `make image` is optional.
+`make acceptance` is a standalone test and does not require `make up` first.
 
 ## Run The Local Foundation
 
-Run checks first:
+Check the project, then start the interactive database:
 
 ```bash
 make check
-```
-
-Run the complete disposable acceptance path:
-
-```bash
-make acceptance
-```
-
-For an interactive database, generate the local password and start PostgreSQL:
-
-```bash
 make up
+```
+
+The startup command returns after the container is healthy. PostgreSQL continues
+running in the background. Inspect its status and follow its logs:
+
+```bash
+bash scripts/compose.sh ps
+bash scripts/compose.sh logs --follow postgres
+```
+
+Press `Ctrl+C` to stop following logs. The database keeps running.
+
+Open a SQL session:
+
+```bash
 make psql
 ```
 
@@ -103,17 +134,65 @@ SELECT * FROM orders;
 \q
 ```
 
-Stop and recreate the interactive database container:
+Use a new reference for each additional order. `\q` closes the SQL session;
+it does not stop PostgreSQL.
+
+Check the installed backup tool while the database container is running:
+
+```bash
+bash scripts/compose.sh exec --user postgres postgres pgbackrest version
+```
+
+Expected output: `pgBackRest 2.59.1`. Backup and restore commands are not configured
+in this step.
+
+## Stop And Resume The Lab
+
+Stop the interactive database and remove its container and network:
 
 ```bash
 make down
+```
+
+The database volume and `.local/postgres_password` are retained. To resume:
+
+```bash
 make up
 make psql
 ```
 
-Run `SELECT * FROM orders;` again to inspect the retained row. Use a new reference
-for each additional order. Exit `psql` with `\q`, then run `make down` to stop the
-lab. The named database volume remains available for the next session.
+Run `SELECT * FROM orders;` to inspect the retained rows. Exit with `\q` and
+run `make down` when finished.
+
+## Remove The Local Image
+
+After building with `make image`, remove the default interactive image with:
+
+```bash
+docker image rm postgres-dr-local-postgres:latest
+```
+
+If the image is used by the interactive container, run `make down` first.
+The image name above assumes the default project; a `PGDR_PROJECT` override
+changes the generated image name.
+
+Removing an image does not delete the PostgreSQL volume, local password, or
+Docker build cache. The next `make up` rebuilds the image and reuses the retained
+volume. Images built by acceptance use separate `postgres-dr-test-*` names.
+
+## Run The Acceptance Checks
+
+Run the complete disposable scenario, including its image build:
+
+```bash
+make check
+make acceptance
+```
+
+On success, the command prints the version and persistence `PASS` messages and
+removes its test container, network, and data volume. It does not leave a test
+database running, so a separate `make down` is not needed for acceptance.
+If cleanup fails, the command reports the test project and retained secret path.
 
 ## Capability Status
 
@@ -121,7 +200,8 @@ lab. The named database volume remains available for the next session.
 | --- | --- |
 | Local PostgreSQL deployment | Complete locally |
 | Container recreation and data comparison | Complete locally |
-| Pull-request CI | Configured; remote execution pending |
+| Pull-request CI | Active; updated image path awaits PR validation |
+| PostgreSQL image with pgBackRest | Complete locally |
 | Physical backup and WAL archiving | Planned |
 | Point-in-time recovery | Planned |
 | RPO/RTO measurement | Planned |
@@ -144,6 +224,10 @@ Repeating password setup preserves the local file and does not rotate the
 password in an initialized database.
 
 ## Production Boundaries
+
+The pgBackRest executable is installed and runnable as `postgres`. No backup
+repository, WAL archive command, or recovery automation is configured in this
+step. Package dependencies resolve from live APT repositories.
 
 This repository currently verifies persistence across a graceful container
 recreation on one Docker host. That host is a single failure domain, and its

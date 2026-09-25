@@ -2,7 +2,8 @@
 
 The foundation is complete when all of the following are demonstrated locally:
 
-- The database starts from the reviewed image pinned to an immutable digest.
+- The database image builds from the reviewed PostgreSQL base pinned by digest.
+- PostgreSQL reports `17.11` and pgBackRest reports `2.59.1` as user `postgres`.
 - A fresh volume initializes with data page checksums enabled.
 - PostgreSQL becomes ready within the startup deadline.
 - The acceptance workload inserts exactly 20 orders.
@@ -24,7 +25,7 @@ make acceptance
 ```
 
 `make check` covers Bash syntax, ShellCheck, Compose configuration, and diff
-whitespace. `make acceptance` runs the database assertions in an isolated
+whitespace. `make acceptance` builds the image and runs database assertions in an isolated
 Compose project and reports a nonzero exit status on failure. Password setup
 idempotence, file permissions, and Git exclusion were checked separately in the
 recorded local run; they are not assertions in `make acceptance`.
@@ -39,7 +40,8 @@ constraint and data checksums verified.
 ## Validation And Evidence
 
 The [local acceptance report](../evidence/local-foundation-acceptance-20260924.md)
-records the completed foundation run. The script prints its result to the
+records the original foundation run. The [image acceptance report](../evidence/pgbackrest-image-acceptance-20260925.md)
+records the same checks with pgBackRest installed. The script prints its result to the
 terminal; it does not generate a persistent Markdown report automatically.
 GitHub CI runs the static checks and database scenario for pull requests and
 commits on `main`.

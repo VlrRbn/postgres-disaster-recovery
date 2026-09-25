@@ -8,7 +8,7 @@ commits, PRs, and release notes.
 
 Follow the [README](README.md) for prerequisites and setup. Create a feature
 branch from the latest `main`, then implement one complete change with its
-relevant checks and documentation.
+relevant checks and documentation. Sign commits with GPG.
 
 For changes to SQL, Compose, scripts, or CI, run:
 

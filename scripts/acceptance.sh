@@ -39,8 +39,12 @@ sql() {
         psql -X -v ON_ERROR_STOP=1 -U postgres -d orders "$@"
 }
 
-"${compose[@]}" up --detach --wait --wait-timeout 120
+"${compose[@]}" up --build --detach --wait --wait-timeout 120
 sql -Atc 'SELECT version();'
+pgbackrest_version=$("${compose[@]}" exec -T --user postgres postgres pgbackrest version)
+[[ "$pgbackrest_version" == 'pgBackRest 2.59.1' ]]
+printf '%s\n' "$pgbackrest_version"
+[[ $(sql -Atc 'SHOW server_version_num;') == 170011 ]]
 [[ $(sql -Atc 'SHOW data_checksums;') == on ]]
 sql -c "INSERT INTO orders (reference, amount_cents)
         SELECT 'acceptance-' || n, n * 100 FROM generate_series(1, 20) AS n;"
@@ -56,11 +60,12 @@ grep -q '23514' "$work/constraint.log"
 snapshot='COPY (SELECT id, reference, amount_cents, created_at FROM orders ORDER BY id) TO STDOUT WITH CSV;'
 sql -c "$snapshot" >"$work/before.csv"
 before_id=$("${compose[@]}" ps -q postgres)
-"${compose[@]}" up --detach --force-recreate --wait --wait-timeout 120 postgres
+"${compose[@]}" up --no-build --pull never --detach --force-recreate --wait --wait-timeout 120 postgres
 after_id=$("${compose[@]}" ps -q postgres)
 [[ -n "$before_id" && -n "$after_id" && "$before_id" != "$after_id" ]]
 sql -c "$snapshot" >"$work/after.csv"
 cmp "$work/before.csv" "$work/after.csv"
 sql -c "INSERT INTO orders (reference, amount_cents) VALUES ('after-recreate', 2500);"
 [[ $(sql -Atc 'SELECT count(*) FROM orders;') == 21 ]]
+echo 'PASS: PostgreSQL 17.11 and pgBackRest 2.59.1 verified as postgres.'
 echo 'PASS: 20 complete records survived container recreation; new writes succeed; amount constraint and data checksums verified.'
