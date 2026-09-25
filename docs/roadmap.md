@@ -5,10 +5,21 @@ names. Each release marks a completed and verified milestone.
 
 | Public capability | Planned release | State |
 | --- | --- | --- |
-| Local PostgreSQL Foundation | `v0.1.0` | Complete locally |
-| Physical Backup And WAL Archiving | `v0.2.0` | Planned |
+| Local PostgreSQL Foundation | `v0.1.0` | Released |
+| Physical Backup And WAL Archiving | `v0.2.0` | In progress |
 | Point-In-Time Recovery | `v0.3.0` | Planned |
 | Recovery Measurement | `v0.4.0` | Planned |
+
+## Physical Backup Delivery Steps
+
+The `v0.2.0` capability is delivered through three focused PRs. Each step is
+verified and merged before the next starts; the release follows verified restore.
+
+| Step | Merge Criteria | State |
+| --- | --- | --- |
+| PostgreSQL Image With pgBackRest | Build the image, verify tool versions, and pass existing persistence checks | Complete locally |
+| Backup Repository And WAL Archiving | Configure repository storage, archive WAL, and create a checked physical backup | Planned |
+| Physical Restore Acceptance | Restore into an empty target volume and verify data and new writes | Planned |
 
 ## Planned Acceptance
 
@@ -21,7 +32,6 @@ names. Each release marks a completed and verified milestone.
 
 ## Scope Rules
 
-- Complete and review one milestone before starting the next.
 - A milestone is complete only after its positive and negative checks pass.
 - A public release follows PR merge and successful validation on `main`.
 - Local reproducibility remains supported.

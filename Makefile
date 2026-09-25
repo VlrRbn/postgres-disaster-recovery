@@ -1,4 +1,4 @@
-.PHONY: setup check up psql down acceptance
+.PHONY: setup check image up psql down acceptance
 
 setup:
 	bash scripts/setup.sh
@@ -9,8 +9,11 @@ check:
 	bash scripts/compose.sh config --quiet
 	git diff --check
 
+image:
+	bash scripts/compose.sh build postgres
+
 up: setup
-	bash scripts/compose.sh up --detach --wait --wait-timeout 120
+	bash scripts/compose.sh up --build --detach --wait --wait-timeout 120
 
 psql:
 	bash scripts/compose.sh exec --user postgres postgres psql -X -U postgres -d orders
