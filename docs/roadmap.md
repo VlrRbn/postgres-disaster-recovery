@@ -17,8 +17,8 @@ verified and merged before the next starts; the release follows verified restore
 
 | Step | Merge Criteria | State |
 | --- | --- | --- |
-| PostgreSQL Image With pgBackRest | Build the image, verify tool versions, and pass existing persistence checks | Complete locally |
-| Backup Repository And WAL Archiving | Configure repository storage, archive WAL, and create a checked physical backup | Planned |
+| PostgreSQL Image With pgBackRest | Build the image, verify tool versions, and pass existing persistence checks | Complete |
+| Backup Repository And WAL Archiving | Configure repository storage, archive WAL, and create a checked physical backup | Complete locally |
 | Physical Restore Acceptance | Restore into an empty target volume and verify data and new writes | Planned |
 
 ## Planned Acceptance

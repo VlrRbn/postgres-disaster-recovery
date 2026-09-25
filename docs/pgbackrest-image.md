@@ -10,7 +10,9 @@ Bookworm image pinned by multi-platform digest. It installs the exact PGDG packa
 `pgbackrest=2.59.1-1.pgdg12+1` without recommended packages, verifies that the
 PostgreSQL version did not change, and requires `pgBackRest 2.59.1` output.
 
-The build inherits the official entrypoint and default command. Build context
+The build inherits the official entrypoint and default command. It also creates
+`/var/lib/pgbackrest` with owner `postgres` and mode `0750`, which initializes the
+permissions of a fresh repository volume. Build context
 is limited to `docker/postgres/`, with only the Dockerfile allowed by its
 `.dockerignore`. Local credentials and database contents are outside that context.
 
@@ -64,11 +66,12 @@ acceptance command. Its job name remains `Foundation checks`.
 ## Scope And Interpretation
 
 The tested platform is Linux amd64. Build cache and derived images remain local;
-the acceptance exit handler removes the test container, network, and data volume.
+the acceptance exit handler removes the test container, network, and both volumes.
 
-This step verifies package installation and database compatibility. It does not
-configure a backup repository, stanza, WAL archive command, retention policy,
-or restore workflow. The next PR adds repository storage and WAL archiving.
+The image supplies pgBackRest and its repository directory. Compose and the
+[backup operations](backup-wal-archiving.md) layer configure storage, WAL
+archiving, the stanza, and retention. Restoration remains a separate planned
+capability.
 
 ## References
 

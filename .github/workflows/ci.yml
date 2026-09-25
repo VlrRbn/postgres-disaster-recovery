@@ -24,5 +24,5 @@ jobs:
           persist-credentials: false
       - name: Static checks
         run: make check
-      - name: Build database image and verify persistence
+      - name: Verify persistence, WAL archiving, and physical backup
         run: make acceptance
