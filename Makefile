@@ -1,4 +1,4 @@
-.PHONY: setup check image up psql down acceptance backup-init backup-check backup backup-info backup-verify
+.PHONY: setup check image up psql down acceptance backup-init backup-check backup backup-info backup-verify restore restore-up restore-psql restore-down
 
 setup:
 	bash scripts/setup.sh
@@ -20,7 +20,7 @@ psql:
 	bash scripts/compose.sh exec --user postgres postgres psql -X -U postgres -d orders
 
 down:
-	bash scripts/compose.sh down
+	bash scripts/compose.sh --profile restore down
 
 acceptance:
 	bash scripts/acceptance.sh
@@ -39,3 +39,16 @@ backup-info:
 
 backup-verify:
 	bash scripts/backup.sh verify
+
+restore:
+	bash scripts/restore.sh restore
+
+restore-up:
+	bash scripts/restore.sh start
+
+restore-psql:
+	bash scripts/compose.sh exec --user postgres restore psql -X -U postgres -d orders
+
+restore-down:
+	bash scripts/compose.sh stop restore
+	bash scripts/compose.sh rm --force restore

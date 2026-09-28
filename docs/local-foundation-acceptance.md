@@ -11,7 +11,7 @@ The foundation is complete when all of the following are demonstrated locally:
 - Container recreation produces a different container ID on the same volume.
 - Ordered snapshots of all stored order fields match byte for byte.
 - A new insert succeeds after recreation and the total order count becomes 21.
-- The test container, network, database volume, and backup volume are removed after the run.
+- Test containers, the network, and all three volumes are removed after the run.
 - Repeating local password setup preserves the existing password file.
 - The generated local password has mode `0600` and is ignored by Git.
 
@@ -47,11 +47,12 @@ GitHub CI runs the static checks and database scenario for pull requests and
 commits on `main`.
 
 The same command now also runs the [backup and WAL acceptance checks](backup-wal-archiving.md#acceptance-criteria),
-including rejection of an empty or damaged test backup.
+including rejection of an empty or damaged test backup, followed by the
+[physical restore checks](physical-restore.md#acceptance-criteria).
 
 ## Interpretation
 
-This exercise demonstrates data persistence after a graceful container
-recreation and continued writes against the retained database volume. It does
-not exercise restoration from backup, point-in-time recovery, disk loss,
-crash recovery, or host failure.
+The foundation phase demonstrates persistence across graceful container
+recreation. The separate restore phase verifies recovery from a physical backup
+while the source is stopped. Recovery to a chosen time, disk loss, crash recovery,
+and host failure remain outside this acceptance boundary.

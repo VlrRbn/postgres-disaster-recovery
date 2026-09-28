@@ -1,6 +1,6 @@
 services:
   postgres:
-    build:
+    build: &postgres-build
       context: ./docker/postgres
     command:
       - postgres
@@ -37,6 +37,41 @@ services:
     networks:
       - database
 
+  restore:
+    profiles: [restore]
+    build: *postgres-build
+    user: postgres
+    # Bypass initdb: starting an empty target must fail, not create a new database.
+    entrypoint: [postgres]
+    command:
+      - -D
+      - /var/lib/postgresql/data
+      - -c
+      - archive_mode=off
+      - -c
+      - archive_command=
+      - -c
+      - listen_addresses=
+    volumes:
+      - pgrestore:/var/lib/postgresql/data
+      - pgrepo:/var/lib/pgbackrest:ro
+      - ./pgbackrest/pgbackrest.conf:/etc/pgbackrest/pgbackrest.conf:ro
+      - ./scripts/restore-volume.sh:/opt/restore-volume.sh:ro
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - >-
+          test "$$(psql -X -U postgres -d orders -Atc 'SELECT NOT pg_is_in_recovery()')" = t
+      interval: 2s
+      timeout: 3s
+      retries: 60
+      start_period: 5s
+    stop_grace_period: 30s
+    shm_size: 128mb
+    mem_limit: 512m
+    cpus: 1.0
+    network_mode: none
+
 secrets:
   postgres_password:
     file: ${PGDR_SECRET_FILE:-./.local/postgres_password}
@@ -44,6 +79,7 @@ secrets:
 volumes:
   pgdata:
   pgrepo:
+  pgrestore:
 
 networks:
   database:

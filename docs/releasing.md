@@ -27,12 +27,12 @@ passed. If the candidate changes, repeat validation for the new commit.
 
 ## Tag And Publication
 
-Create a GPG-signed annotated tag on the verified main commit. For the Local PostgreSQL
-Foundation release:
+Create a GPG-signed annotated tag on the verified main commit. For the Physical Backup And Restore
+release:
 
 ```bash
-git tag -s v0.1.0 -m 'v0.1.0: local PostgreSQL foundation'
-git push origin v0.1.0
+git tag -s v0.2.0 -m 'v0.2.0: physical backup and restore'
+git push origin v0.2.0
 ```
 
 Create a GitHub Release from that tag using the corresponding release notes.
