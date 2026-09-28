@@ -2,8 +2,8 @@
 
 This capability creates a physical backup of the PostgreSQL cluster and checks
 that required WAL reaches a separate local repository. It verifies backup file
-integrity and persistence across container recreation. Restoration into an empty
-volume is the next delivery step.
+integrity and persistence across container recreation.
+[Physical restore](physical-restore.md) verifies the next part of the recovery path.
 
 ## Storage And Configuration
 
@@ -87,7 +87,8 @@ reporting invalid files, so the wrapper checks the report rather than relying
 only on the process exit code. Empty or invalid results produce a nonzero exit.
 
 Integrity verification does not demonstrate that a restored database starts or
-contains the expected application records. Those checks belong to the restore PR.
+contains the expected application records. Those checks run in the
+[physical restore phase](physical-restore.md#acceptance-criteria).
 
 ## Stop And Resume
 
@@ -124,7 +125,8 @@ Acceptance requires all of the following:
 - Deliberately corrupting a compressed `PG_VERSION` file in the disposable copy
   causes `backup-verify` to fail, even though pgBackRest itself may exit zero.
 - Replacing that test file with its saved original makes verification pass again.
-- The test container, network, and both volumes are removed on exit.
+- Test containers, the network, and all volumes are removed on exit, including
+  the separate restore target used by the next acceptance phase.
 
 The corruption step is internal to the isolated acceptance script. Interactive
 `make backup` and `make backup-verify` never inject faults.
@@ -145,8 +147,10 @@ See [acceptance evidence](../evidence/backup-wal-acceptance-20260925.md) for the
 
 Both volumes share one Docker host and failure domain. The repository is local,
 unreplicated, and unencrypted. No off-host recovery, PITR, scheduled backup,
-retention rollover, or RPO/RTO result is claimed. The physical restore acceptance
-step must pass before release `v0.2.0`.
+retention rollover, or RPO/RTO result is claimed. The
+[physical restore evidence](../evidence/physical-restore-acceptance-20260928.md)
+records the locally completed recovery checks for `v0.2.0`. Publication still
+requires PR merge and successful main CI.
 
 ## References
 

@@ -6,7 +6,7 @@ names. Each release marks a completed and verified milestone.
 | Public capability | Planned release | State |
 | --- | --- | --- |
 | Local PostgreSQL Foundation | `v0.1.0` | Released |
-| Physical Backup And WAL Archiving | `v0.2.0` | In progress |
+| Physical Backup And Restore | `v0.2.0` | Complete locally |
 | Point-In-Time Recovery | `v0.3.0` | Planned |
 | Recovery Measurement | `v0.4.0` | Planned |
 
@@ -18,12 +18,12 @@ verified and merged before the next starts; the release follows verified restore
 | Step | Merge Criteria | State |
 | --- | --- | --- |
 | PostgreSQL Image With pgBackRest | Build the image, verify tool versions, and pass existing persistence checks | Complete |
-| Backup Repository And WAL Archiving | Configure repository storage, archive WAL, and create a checked physical backup | Complete locally |
-| Physical Restore Acceptance | Restore into an empty target volume and verify data and new writes | Planned |
+| Backup Repository And WAL Archiving | Configure repository storage, archive WAL, and create a checked physical backup | Complete |
+| Physical Restore Acceptance | Restore into an empty target volume and verify data and new writes | Complete locally |
 
-## Planned Acceptance
+## Acceptance Contracts
 
-- **Physical Backup And WAL Archiving:** create a pgBackRest backup, restore into
+- **Physical Backup And Restore:** create a pgBackRest backup, restore into
   an empty target volume, verify a known dataset, and diagnose missing WAL.
 - **Point-In-Time Recovery:** restore to a point before accidental deletion and
   verify both included and excluded transactions.

@@ -66,12 +66,13 @@ acceptance command. Its job name remains `Foundation checks`.
 ## Scope And Interpretation
 
 The tested platform is Linux amd64. Build cache and derived images remain local;
-the acceptance exit handler removes the test container, network, and both volumes.
+the acceptance exit handler removes test containers, the network, and all volumes.
 
 The image supplies pgBackRest and its repository directory. Compose and the
 [backup operations](backup-wal-archiving.md) layer configure storage, WAL
-archiving, the stanza, and retention. Restoration remains a separate planned
-capability.
+archiving, the stanza, and retention. The [restore service](physical-restore.md)
+uses the same Dockerfile but starts PostgreSQL directly, bypassing initialization
+so that an empty restore volume cannot be mistaken for a recovered database.
 
 ## References
 
