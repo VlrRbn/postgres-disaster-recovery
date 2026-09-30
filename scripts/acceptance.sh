@@ -255,6 +255,68 @@ echo 'PASS: missing WAL and occupied restore targets rejected.'
 echo 'PASS: 20 records restored with source stopped; later source write excluded; restored writes survive restart.'
 echo 'PASS: source records and repository contents unchanged by restore; restored repository mount is read-only.'
 
+# PITR must replay post-backup commits but stop before the destructive transaction.
+# Reuse only the disposable project's restore volume, never the interactive lab.
+"${compose[@]}" stop restore
+"${compose[@]}" rm --force restore
+docker volume rm "${PGDR_PROJECT}_pgrestore"
+
+for invalid_time in '' '2026-09-30 12:00:00' '2026-02-30 12:00:00+00:00'; do
+    restore_status=0
+    BACKUP_LABEL="$before_backup" RECOVERY_TIME="$invalid_time" \
+        bash "$root/scripts/restore.sh" time >"$work/invalid-time.log" 2>&1 || restore_status=$?
+    [[ "$restore_status" == 2 ]]
+    grep -q 'Set RECOVERY_TIME' "$work/invalid-time.log"
+done
+
+sql -c "INSERT INTO orders (reference, amount_cents) VALUES ('pitr-before-delete', 4500);"
+sql -c "$snapshot" >"$work/pitr-expected.csv"
+recovery_time=$(sql -Atc "SELECT to_char(clock_timestamp() AT TIME ZONE 'UTC', 'YYYY-MM-DD HH24:MI:SS.US') || '+00:00';")
+printf 'PITR target: %s; backup: %s\n' "$recovery_time" "$before_backup"
+sql -c "DELETE FROM orders;"
+sql -c "INSERT INTO orders (reference, amount_cents) VALUES ('pitr-after-delete', 5500);"
+[[ $(sql -Atc 'SELECT count(*) FROM orders;') == 1 ]]
+sql -c "$snapshot" >"$work/pitr-damaged-source.csv"
+bash "$root/scripts/backup.sh" check
+"${compose[@]}" stop postgres
+repository_snapshot >"$work/pitr-repository-before.sha256"
+
+# An unreachable target must fail rather than promote at the end of available WAL.
+future_time=$(date -u --date="$recovery_time +1 day" '+%Y-%m-%d %H:%M:%S+00:00')
+restore_status=0
+RESTORE_WAIT_SECONDS=15 BACKUP_LABEL="$before_backup" RECOVERY_TIME="$future_time" \
+    bash "$root/scripts/restore.sh" time >"$work/unreachable-time.log" 2>&1 || restore_status=$?
+if [[ "$restore_status" == 0 ]] || ! grep -q 'recovery ended before configured recovery target was reached' "$work/unreachable-time.log"; then
+    cat "$work/unreachable-time.log" >&2
+    echo 'Expected an unreachable recovery time to fail without promotion.' >&2
+    exit 1
+fi
+"${compose[@]}" stop restore
+"${compose[@]}" rm --force restore
+docker volume rm "${PGDR_PROJECT}_pgrestore"
+
+BACKUP_LABEL="$before_backup" RECOVERY_TIME="$recovery_time" bash "$root/scripts/restore.sh" time
+[[ -z $("${compose[@]}" ps --status running --quiet postgres) ]]
+[[ $(restore_sql -Atc 'SELECT pg_is_in_recovery();') == f ]]
+[[ $(restore_sql -Atc 'SHOW archive_mode;') == off ]]
+restore_sql -c "$snapshot" >"$work/pitr-restored.csv"
+cmp "$work/pitr-expected.csv" "$work/pitr-restored.csv"
+[[ $(restore_sql -Atc 'SELECT count(*) FROM orders;') == 22 ]]
+[[ $(restore_sql -Atc "SELECT count(*) FROM orders WHERE reference = 'pitr-after-delete';") == 0 ]]
+restore_sql -c "INSERT INTO orders (reference, amount_cents) VALUES ('pitr-restored-write', 6500);"
+restore_sql -c "$snapshot" >"$work/pitr-with-write.csv"
+"${compose[@]}" stop restore
+bash "$root/scripts/restore.sh" start
+restore_sql -c "$snapshot" >"$work/pitr-after-restart.csv"
+cmp "$work/pitr-with-write.csv" "$work/pitr-after-restart.csv"
+repository_snapshot >"$work/pitr-repository-after.sha256"
+cmp "$work/pitr-repository-before.sha256" "$work/pitr-repository-after.sha256"
+"${compose[@]}" up --no-build --pull never --detach --wait --wait-timeout 120 postgres
+sql -c "$snapshot" >"$work/pitr-source-after.csv"
+cmp "$work/pitr-damaged-source.csv" "$work/pitr-source-after.csv"
+echo 'PASS: PITR restored 22 exact records before deletion; later transaction excluded; restored writes survive restart.'
+echo 'PASS: invalid and unreachable recovery times rejected; source and repository unchanged by PITR.'
+
 echo 'PASS: empty and corrupt backups rejected; repaired test copy passes verification.'
 echo 'PASS: PostgreSQL 17.11 and pgBackRest 2.59.1 verified as postgres.'
 echo 'PASS: 20 complete records survived container recreation; new writes succeed; amount constraint and data checksums verified.'

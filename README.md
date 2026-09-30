@@ -6,8 +6,8 @@ persistent storage, WAL archiving, physical backups, and verified isolated resto
 
 ## Project Status
 
-The **Local PostgreSQL Foundation** is released as `v0.1.0`. Work toward `v0.2.0`
-now includes locally verified backup and restore on one Docker host:
+The **Local PostgreSQL Foundation** is released as `v0.1.0` and
+**Physical Backup And Restore** as `v0.2.0`, on one Docker host:
 
 ```text
 empty database volume
@@ -19,9 +19,8 @@ empty database volume
   -> exact record comparison, new writes, and failure detection
 ```
 
-Physical restore acceptance is complete locally. Release `v0.2.0` follows PR
-merge and successful CI on `main`. Recovery to a selected time and RPO/RTO
-measurement remain planned.
+The next delivery step adds recovery to a selected UTC time before accidental
+deletion. RPO/RTO measurement remains planned.
 
 ## Local PostgreSQL Foundation
 
@@ -84,6 +83,17 @@ excludes a later source write, and verifies new writes and restart on the
 restored database. It also rejects an occupied target and missing required WAL.
 See [physical restore](docs/physical-restore.md) and
 [restore evidence](evidence/physical-restore-acceptance-20260928.md).
+
+## Point-In-Time Recovery
+
+`make restore-time` accepts an explicit `BACKUP_LABEL` and `RECOVERY_TIME` in UTC.
+It replays archived WAL to the selected time in the same isolated restore service.
+The target must follow the end of the selected backup and be reachable from the
+available WAL. An unreachable target fails without claiming successful recovery.
+
+The acceptance scenario preserves post-backup orders while excluding a later
+deletion and insert. See [PITR operations and acceptance](docs/point-in-time-recovery.md)
+for preparation, commands, and the recovery boundary.
 
 ## Security Defaults
 

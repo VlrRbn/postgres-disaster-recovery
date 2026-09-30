@@ -6,8 +6,8 @@ names. Each release marks a completed and verified milestone.
 | Public capability | Planned release | State |
 | --- | --- | --- |
 | Local PostgreSQL Foundation | `v0.1.0` | Released |
-| Physical Backup And Restore | `v0.2.0` | Complete locally |
-| Point-In-Time Recovery | `v0.3.0` | Planned |
+| Physical Backup And Restore | `v0.2.0` | Released |
+| Point-In-Time Recovery | `v0.3.0` | In progress |
 | Recovery Measurement | `v0.4.0` | Planned |
 
 ## Physical Backup Delivery Steps
@@ -19,7 +19,14 @@ verified and merged before the next starts; the release follows verified restore
 | --- | --- | --- |
 | PostgreSQL Image With pgBackRest | Build the image, verify tool versions, and pass existing persistence checks | Complete |
 | Backup Repository And WAL Archiving | Configure repository storage, archive WAL, and create a checked physical backup | Complete |
-| Physical Restore Acceptance | Restore into an empty target volume and verify data and new writes | Complete locally |
+| Physical Restore Acceptance | Restore into an empty target volume and verify data and new writes | Complete |
+
+## Point-In-Time Recovery Delivery
+
+The current PR adds an explicit UTC time target, an accidental-deletion exercise,
+and rejection of invalid or unreachable targets. Commands and acceptance criteria
+are in [Point-In-Time Recovery](point-in-time-recovery.md). Release preparation
+follows review, merge, and CI; no release is published by this change.
 
 ## Acceptance Contracts
 

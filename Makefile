@@ -1,4 +1,4 @@
-.PHONY: setup check image up psql down acceptance backup-init backup-check backup backup-info backup-verify restore restore-up restore-psql restore-down
+.PHONY: setup check image up psql down acceptance backup-init backup-check backup backup-info backup-verify restore restore-time restore-up restore-psql restore-down
 
 setup:
 	bash scripts/setup.sh
@@ -42,6 +42,9 @@ backup-verify:
 
 restore:
 	bash scripts/restore.sh restore
+
+restore-time:
+	bash scripts/restore.sh time
 
 restore-up:
 	bash scripts/restore.sh start
