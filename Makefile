@@ -1,4 +1,4 @@
-.PHONY: setup check image up psql down acceptance backup-init backup-check backup backup-info backup-verify restore restore-time restore-up restore-psql restore-down
+.PHONY: setup check image up psql down acceptance backup-init backup-check backup backup-info backup-verify restore restore-time restore-up restore-psql restore-down pgadmin-up pgadmin-down pgadmin-acceptance
 
 setup:
 	bash scripts/setup.sh
@@ -20,7 +20,18 @@ psql:
 	bash scripts/compose.sh exec --user postgres postgres psql -X -U postgres -d orders
 
 down:
-	bash scripts/compose.sh --profile restore down
+	bash scripts/compose.sh --profile restore --profile tools down
+
+pgadmin-up: up
+	bash scripts/setup.sh pgadmin
+	bash scripts/compose.sh up --no-build --detach --wait --wait-timeout 180 pgadmin
+
+pgadmin-down:
+	bash scripts/compose.sh stop pgadmin
+	bash scripts/compose.sh rm --force pgadmin
+
+pgadmin-acceptance:
+	bash scripts/pgadmin-acceptance.sh
 
 acceptance:
 	bash scripts/acceptance.sh

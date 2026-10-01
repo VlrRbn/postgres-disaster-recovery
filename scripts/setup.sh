@@ -2,7 +2,12 @@
 set -euo pipefail
 
 root=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
-python3 - "$root/.local/postgres_password" <<'PY'
+case "${1:-postgres}" in
+    postgres) secret_file=${PGDR_SECRET_FILE:-$root/.local/postgres_password} ;;
+    pgadmin) secret_file=${PGDR_PGADMIN_SECRET_FILE:-$root/.local/pgadmin_password} ;;
+    *) echo 'Usage: setup.sh [postgres|pgadmin]' >&2; exit 2 ;;
+esac
+python3 - "$secret_file" <<'PY'
 import os
 from pathlib import Path
 import secrets
@@ -14,10 +19,10 @@ try:
     fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
 except FileExistsError:
     if not path.is_file() or not path.read_text().strip():
-        sys.exit("Existing password file is invalid; inspect .local/postgres_password.")
-    print("Existing local password preserved.")
+        sys.exit(f"Existing password file is invalid; inspect {path}.")
+    print(f"Existing local password preserved: {path}")
 else:
     with os.fdopen(fd, "w") as out:
         out.write(secrets.token_hex(32) + "\n")
-    print("Local password generated in ignored .local/postgres_password.")
+    print(f"Local password generated: {path}")
 PY

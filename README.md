@@ -105,6 +105,21 @@ for preparation, commands, and the recovery boundary.
 - CPU, memory, and shared-memory limits;
 - isolated database resources for automated acceptance.
 
+## Optional Database Interface
+
+Run `make pgadmin-up` and open <http://127.0.0.1:5050> for the primary database's
+pgAdmin interface. The `.local` directory and both password files are generated
+automatically on first startup; no manual setup is needed. Existing passwords
+are preserved on subsequent runs, and the files are ignored by Git.
+
+Sign in as `admin@example.com` with the password from
+`.local/pgadmin_password`; use `.local/postgres_password` when connecting to the
+preconfigured **Orders — primary** server. See [pgAdmin operations](docs/pgadmin.md)
+for table browsing, SQL, ports, passwords, and cleanup.
+
+`make pgadmin-down` stops only the UI. Normal `make up` does not start it.
+The restored database remains accessible through `make restore-psql`.
+
 ## Prerequisites
 
 ```text
@@ -255,14 +270,15 @@ for deliberately discarding only the restored copy.
 
 ## Stop And Resume The Lab
 
-Stop both database services and remove their containers and the project network:
+Stop the database services and optional pgAdmin, removing their containers and
+the project network:
 
 ```bash
 make down
 ```
 
-All named volumes (`pgdata`, `pgrepo`, and `pgrestore` when created) and
-`.local/postgres_password` are retained. To resume the source:
+All named volumes (`pgdata`, `pgrepo`, `pgrestore`, and `pgadmin_data` when created)
+and local password files are retained. To resume the source:
 
 ```bash
 make up
