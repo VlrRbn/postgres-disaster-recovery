@@ -37,6 +37,39 @@ services:
     networks:
       - database
 
+  pgadmin:
+    profiles: [tools]
+    image: dpage/pgadmin4:9.18@sha256:c332c5f6dfba995d9ebc4af261d93506d6876085d712eaaa3defc8dd1a3f26de
+    # The official entrypoint reads the 0600 secret, then runs pgAdmin as UID 5050.
+    user: root
+    environment:
+      PGADMIN_DEFAULT_EMAIL: admin@example.com
+      PGADMIN_DEFAULT_PASSWORD_FILE: /run/secrets/pgadmin_password
+      PGADMIN_DISABLE_POSTFIX: '1'
+      PGADMIN_LISTEN_PORT: '5050'
+      PGADMIN_CONFIG_UPGRADE_CHECK_ENABLED: 'False'
+    secrets:
+      - pgadmin_password
+    volumes:
+      - pgadmin_data:/var/lib/pgadmin
+      - ./pgadmin/servers.json:/pgadmin4/servers.json:ro
+    ports:
+      - '127.0.0.1:${PGADMIN_PORT:-5050}:5050'
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: [CMD, /venv/bin/python3, -c, "import urllib.request; urllib.request.urlopen('http://127.0.0.1:5050/misc/ping', timeout=3)"]
+      interval: 5s
+      timeout: 5s
+      retries: 24
+      start_period: 20s
+    mem_limit: 512m
+    cpus: 1.0
+    networks:
+      - database
+      - ui
+
   restore:
     profiles: [restore]
     build: *postgres-build
@@ -73,14 +106,18 @@ services:
     network_mode: none
 
 secrets:
+  pgadmin_password:
+    file: ${PGDR_PGADMIN_SECRET_FILE:-./.local/pgadmin_password}
   postgres_password:
     file: ${PGDR_SECRET_FILE:-./.local/postgres_password}
 
 volumes:
+  pgadmin_data:
   pgdata:
   pgrepo:
   pgrestore:
 
 networks:
+  ui:
   database:
     internal: true

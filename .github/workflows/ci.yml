@@ -26,3 +26,5 @@ jobs:
         run: make check
       - name: Verify backup, isolated restore, and failure detection
         run: make acceptance
+      - name: Verify optional pgAdmin access and persistence
+        run: make pgadmin-acceptance
