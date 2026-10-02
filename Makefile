@@ -1,4 +1,4 @@
-.PHONY: setup check image up psql down acceptance backup-init backup-check backup backup-info backup-verify restore restore-time restore-up restore-psql restore-down pgadmin-up pgadmin-down pgadmin-acceptance
+.PHONY: setup check image up psql down acceptance backup-init backup-check backup backup-info backup-verify restore restore-time restore-latest restore-up restore-psql restore-down pgadmin-up pgadmin-down pgadmin-acceptance rpo-acceptance
 
 setup:
 	bash scripts/setup.sh
@@ -37,6 +37,9 @@ pgadmin-acceptance:
 acceptance:
 	bash scripts/acceptance.sh
 
+rpo-acceptance:
+	bash scripts/rpo-acceptance.sh
+
 backup-init:
 	bash scripts/backup.sh init
 
@@ -57,6 +60,9 @@ restore:
 
 restore-time:
 	bash scripts/restore.sh time
+
+restore-latest:
+	bash scripts/restore.sh latest
 
 restore-up:
 	bash scripts/restore.sh start

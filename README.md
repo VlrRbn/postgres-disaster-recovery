@@ -106,6 +106,14 @@ The report distinguishes the chosen rollback window from crash RPO. See
 [measurement boundaries](docs/recovery-measurement.md) for commands, fields,
 conditions, and interpretation.
 
+`make rpo-acceptance` records ten acknowledged transactions, simulates a WAL
+archive outage and primary crash, and compares recovery with the host journal.
+Its JSON report measures acknowledged loss and the interval from the last
+recovered acknowledgment to the fault trigger. See
+[acknowledged workload and RPO](docs/acknowledged-workload-rpo.md).
+`BACKUP_LABEL=YYYYMMDD-HHMMSSF make restore-latest` recovers the selected backup
+to the end of available archived WAL.
+
 ## Security Defaults
 
 - official PostgreSQL base image pinned to an immutable digest;

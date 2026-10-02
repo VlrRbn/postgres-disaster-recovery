@@ -65,9 +65,10 @@ an exact PostgreSQL commit timestamp. Row `created_at` values likewise do not
 establish transaction commit times. Deliberate rollback and zero missing wanted
 rows must not be presented as proof of a universal zero RPO.
 
-A later delivery step can record acknowledged transactions during a continuous
-workload and quantify losses at a defined fault boundary. This PR prepares the
-verified report and duration boundary before that extension.
+The [acknowledged-workload scenario](acknowledged-workload-rpo.md) separately
+journals successful commits, causes an archive outage and primary crash, and
+measures loss when recovering the last available archived WAL. Its report uses
+`observed_rpo_seconds`; the intentional-rollback report retains `rpo_seconds: null`.
 
 ## Acceptance And Provenance
 

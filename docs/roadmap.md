@@ -8,7 +8,7 @@ names. Each release marks a completed and verified milestone.
 | Local PostgreSQL Foundation | `v0.1.0` | Released |
 | Physical Backup And Restore | `v0.2.0` | Released |
 | Point-In-Time Recovery | `v0.3.0` | Complete |
-| Recovery Measurement | `v0.4.0` | In progress |
+| Recovery Measurement | `v0.4.0` | Complete locally; release pending |
 
 ## Physical Backup Delivery Steps
 
@@ -31,11 +31,12 @@ are in [Point-In-Time Recovery](point-in-time-recovery.md).
 
 | Step | Merge Criteria | State |
 | --- | --- | --- |
-| Verified Restore Duration And Report | Monotonic timing around successful PITR, exact dataset validation, persistent JSON report, and explicit measurement boundaries | In progress |
-| Acknowledged Workload And RPO | Record acknowledged transactions and quantify losses at a defined fault boundary | Planned |
+| Verified Restore Duration And Report | Monotonic timing around successful PITR, exact dataset validation, persistent JSON report, and explicit measurement boundaries | Complete |
+| Acknowledged Workload And RPO | Record acknowledged transactions and quantify losses at a defined fault boundary | Complete locally |
 
 Each step is reviewed and merged before the next begins. See
 [recovery measurement](recovery-measurement.md) for the first step's contract.
+The second contract is [acknowledged workload and RPO](acknowledged-workload-rpo.md).
 
 ## Acceptance Contracts
 

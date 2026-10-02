@@ -7,15 +7,17 @@ if (( $# < 1 || $# > 2 )) || [[ ! "$1" =~ ^[0-9]{8}-[0-9]{6}F$ ]]; then
     exit 2
 fi
 
-recovery_args=(--type=immediate)
-if (( $# == 2 )); then
+recovery_args=(--type=immediate --target-action=promote)
+if (( $# == 2 )) && [[ "$2" == latest ]]; then
+    recovery_args=(--type=default --target-timeline=current)
+elif (( $# == 2 )); then
     if [[ ! "$2" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}\ [0-9]{2}:[0-9]{2}:[0-9]{2}(\.[0-9]{1,6})?\+00:00$ ]] ||
         ! date --date="$2" +%s >/dev/null 2>&1; then
         echo 'Recovery time must be a valid UTC timestamp: YYYY-MM-DD HH:MM:SS[.ffffff]+00:00.' >&2
         exit 2
     fi
     # Time targets are inclusive by default in the pinned pgBackRest version.
-    recovery_args=(--type=time "--target=$2" --target-timeline=current)
+    recovery_args=(--type=time "--target=$2" --target-timeline=current --target-action=promote)
 fi
 
 target=/var/lib/postgresql/data
@@ -25,4 +27,4 @@ if [[ -n $(find "$target" -mindepth 1 -maxdepth 1 -print -quit) ]]; then
 fi
 
 exec pgbackrest --stanza=orders --set="$1" "${recovery_args[@]}" \
-    --target-action=promote --archive-mode=off restore
+    --archive-mode=off restore
