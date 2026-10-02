@@ -7,8 +7,8 @@ names. Each release marks a completed and verified milestone.
 | --- | --- | --- |
 | Local PostgreSQL Foundation | `v0.1.0` | Released |
 | Physical Backup And Restore | `v0.2.0` | Released |
-| Point-In-Time Recovery | `v0.3.0` | In progress |
-| Recovery Measurement | `v0.4.0` | Planned |
+| Point-In-Time Recovery | `v0.3.0` | Complete |
+| Recovery Measurement | `v0.4.0` | In progress |
 
 ## Physical Backup Delivery Steps
 
@@ -23,10 +23,19 @@ verified and merged before the next starts; the release follows verified restore
 
 ## Point-In-Time Recovery Delivery
 
-The current PR adds an explicit UTC time target, an accidental-deletion exercise,
+PITR includes an explicit UTC time target, an accidental-deletion exercise,
 and rejection of invalid or unreachable targets. Commands and acceptance criteria
-are in [Point-In-Time Recovery](point-in-time-recovery.md). Release preparation
-follows review, merge, and CI; no release is published by this change.
+are in [Point-In-Time Recovery](point-in-time-recovery.md).
+
+## Recovery Measurement Delivery Steps
+
+| Step | Merge Criteria | State |
+| --- | --- | --- |
+| Verified Restore Duration And Report | Monotonic timing around successful PITR, exact dataset validation, persistent JSON report, and explicit measurement boundaries | In progress |
+| Acknowledged Workload And RPO | Record acknowledged transactions and quantify losses at a defined fault boundary | Planned |
+
+Each step is reviewed and merged before the next begins. See
+[recovery measurement](recovery-measurement.md) for the first step's contract.
 
 ## Acceptance Contracts
 

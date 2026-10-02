@@ -274,6 +274,7 @@ sql -c "$snapshot" >"$work/pitr-expected.csv"
 recovery_time=$(sql -Atc "SELECT to_char(clock_timestamp() AT TIME ZONE 'UTC', 'YYYY-MM-DD HH24:MI:SS.US') || '+00:00';")
 printf 'PITR target: %s; backup: %s\n' "$recovery_time" "$before_backup"
 sql -c "DELETE FROM orders;"
+incident_time=$(sql -Atc "SELECT to_char(clock_timestamp() AT TIME ZONE 'UTC', 'YYYY-MM-DD HH24:MI:SS.US') || '+00:00';")
 sql -c "INSERT INTO orders (reference, amount_cents) VALUES ('pitr-after-delete', 5500);"
 [[ $(sql -Atc 'SELECT count(*) FROM orders;') == 1 ]]
 sql -c "$snapshot" >"$work/pitr-damaged-source.csv"
@@ -295,6 +296,7 @@ fi
 "${compose[@]}" rm --force restore
 docker volume rm "${PGDR_PROJECT}_pgrestore"
 
+python3 "$root/scripts/recovery_report.py" stamp "$work/recovery-start.json"
 BACKUP_LABEL="$before_backup" RECOVERY_TIME="$recovery_time" bash "$root/scripts/restore.sh" time
 [[ -z $("${compose[@]}" ps --status running --quiet postgres) ]]
 [[ $(restore_sql -Atc 'SELECT pg_is_in_recovery();') == f ]]
@@ -304,6 +306,8 @@ cmp "$work/pitr-expected.csv" "$work/pitr-restored.csv"
 [[ $(restore_sql -Atc 'SELECT count(*) FROM orders;') == 22 ]]
 [[ $(restore_sql -Atc "SELECT count(*) FROM orders WHERE reference = 'pitr-after-delete';") == 0 ]]
 restore_sql -c "INSERT INTO orders (reference, amount_cents) VALUES ('pitr-restored-write', 6500);"
+[[ $(restore_sql -Atc "SELECT count(*) FROM orders WHERE reference = 'pitr-restored-write';") == 1 ]]
+python3 "$root/scripts/recovery_report.py" stamp "$work/recovery-verified.json"
 restore_sql -c "$snapshot" >"$work/pitr-with-write.csv"
 "${compose[@]}" stop restore
 bash "$root/scripts/restore.sh" start
@@ -321,3 +325,11 @@ echo 'PASS: empty and corrupt backups rejected; repaired test copy passes verifi
 echo 'PASS: PostgreSQL 17.11 and pgBackRest 2.59.1 verified as postgres.'
 echo 'PASS: 20 complete records survived container recreation; new writes succeed; amount constraint and data checksums verified.'
 echo 'PASS: uninitialized repository rejected; WAL archiving and full backup verified; backup retained after container recreation.'
+
+# Emit a success report only after the complete recovery scenario passed.
+python3 "$root/scripts/recovery_report.py" report \
+    --start "$work/recovery-start.json" --verified "$work/recovery-verified.json" \
+    --expected "$work/pitr-expected.csv" --recovered "$work/pitr-restored.csv" \
+    --later "$work/pitr-damaged-source.csv" --target "$recovery_time" \
+    --incident "$incident_time" --backup "$before_backup" --project "$PGDR_PROJECT" \
+    --output "$root/.local/reports/$PGDR_PROJECT.json"
