@@ -6,6 +6,7 @@ setup:
 check:
 	@for script in scripts/*.sh; do bash -n "$$script" || exit; done
 	shellcheck scripts/*.sh
+	python3 -m unittest discover -s tests -p 'test_*.py'
 	bash scripts/compose.sh config --quiet
 	git diff --check
 

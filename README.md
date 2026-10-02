@@ -19,8 +19,8 @@ empty database volume
   -> exact record comparison, new writes, and failure detection
 ```
 
-The next delivery step adds recovery to a selected UTC time before accidental
-deletion. RPO/RTO measurement remains planned.
+Recovery to a selected UTC time before accidental deletion is implemented.
+Current work adds measured recovery duration and dataset-completeness reports.
 
 ## Local PostgreSQL Foundation
 
@@ -94,6 +94,17 @@ available WAL. An unreachable target fails without claiming successful recovery.
 The acceptance scenario preserves post-backup orders while excluding a later
 deletion and insert. See [PITR operations and acceptance](docs/point-in-time-recovery.md)
 for preparation, commands, and the recovery boundary.
+
+## Recovery Measurement
+
+`make acceptance` records the successful PITR attempt from restore invocation
+through exact data validation and a confirmed new write. A JSON report in
+`.local/reports/` records duration using a monotonic clock, UTC boundaries,
+recovered row counts, and deliberately excluded rows. It is printed in CI.
+
+The report distinguishes the chosen rollback window from crash RPO. See
+[measurement boundaries](docs/recovery-measurement.md) for commands, fields,
+conditions, and interpretation.
 
 ## Security Defaults
 

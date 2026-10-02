@@ -26,5 +26,7 @@ jobs:
         run: make check
       - name: Verify backup, isolated restore, and failure detection
         run: make acceptance
+      - name: Show recovery measurement
+        run: cat .local/reports/*.json
       - name: Verify optional pgAdmin access and persistence
         run: make pgadmin-acceptance
