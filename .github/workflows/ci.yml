@@ -28,5 +28,9 @@ jobs:
         run: make acceptance
       - name: Show recovery measurement
         run: cat .local/reports/*.json
+      - name: Verify acknowledged workload and archive-outage recovery
+        run: make rpo-acceptance
+      - name: Show acknowledged workload RPO
+        run: cat .local/reports/*-rpo.json
       - name: Verify optional pgAdmin access and persistence
         run: make pgadmin-acceptance

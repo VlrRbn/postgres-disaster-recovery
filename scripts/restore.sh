@@ -19,7 +19,7 @@ start_restore() {
 }
 
 case "${1:-}" in
-    restore|time)
+    restore|time|latest)
         label=${BACKUP_LABEL:-}
         if [[ ! "$label" =~ ^[0-9]{8}-[0-9]{6}F$ ]]; then
             echo 'Set BACKUP_LABEL to an explicit full backup label from make backup-info.' >&2
@@ -35,6 +35,9 @@ case "${1:-}" in
             fi
             restore_args+=("$recovery_time")
         fi
+        if [[ "$1" == latest ]]; then
+            restore_args+=(latest)
+        fi
         if [[ -n $("${compose[@]}" ps --all --quiet restore) ]]; then
             echo 'Restore container already exists. Use make restore-up to resume or make restore-down to remove it.' >&2
             exit 1
@@ -47,7 +50,7 @@ case "${1:-}" in
         start_restore
         ;;
     *)
-        echo 'Usage: restore.sh {restore|time|start}' >&2
+        echo 'Usage: restore.sh {restore|time|latest|start}' >&2
         exit 2
         ;;
 esac
