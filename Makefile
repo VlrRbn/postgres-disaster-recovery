@@ -1,4 +1,4 @@
-.PHONY: setup check image up psql down acceptance backup-init backup-check backup backup-info backup-verify restore restore-time restore-latest restore-up restore-psql restore-down pgadmin-up pgadmin-down pgadmin-acceptance rpo-acceptance
+.PHONY: setup check image up psql down acceptance backup-init backup-check backup backup-info backup-verify backup-health backup-health-acceptance restore restore-time restore-latest restore-up restore-psql restore-down pgadmin-up pgadmin-down pgadmin-acceptance rpo-acceptance
 
 setup:
 	bash scripts/setup.sh
@@ -6,7 +6,7 @@ setup:
 check:
 	@for script in scripts/*.sh; do bash -n "$$script" || exit; done
 	shellcheck scripts/*.sh
-	python3 -m unittest discover -s tests -p 'test_*.py'
+	python3 -m unittest discover -s tests -p 'test_*.py' -v
 	bash scripts/compose.sh config --quiet
 	git diff --check
 
@@ -54,6 +54,12 @@ backup-info:
 
 backup-verify:
 	bash scripts/backup.sh verify
+
+backup-health:
+	@python3 scripts/backup_health.py
+
+backup-health-acceptance:
+	bash scripts/backup-health-acceptance.sh
 
 restore:
 	bash scripts/restore.sh restore

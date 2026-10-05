@@ -32,5 +32,9 @@ jobs:
         run: make rpo-acceptance
       - name: Show acknowledged workload RPO
         run: cat .local/reports/*-rpo.json
+      - name: Verify backup health and archive failure detection
+        run: make backup-health-acceptance
+      - name: Show backup health acceptance
+        run: cat .local/reports/*-health.json
       - name: Verify optional pgAdmin access and persistence
         run: make pgadmin-acceptance
