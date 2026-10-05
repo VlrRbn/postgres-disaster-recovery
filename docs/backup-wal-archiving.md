@@ -86,6 +86,10 @@ an explicit `status: ok` report. pgBackRest 2.59.1 can return exit code zero whi
 reporting invalid files, so the wrapper checks the report rather than relying
 only on the process exit code. Empty or invalid results produce a nonzero exit.
 
+`make backup-health` combines completed full-backup freshness and an active WAL
+delivery check in a JSON report. See [backup health](backup-health.md) for its
+age limit, timeouts, exit codes, and failure handling.
+
 Integrity verification does not demonstrate that a restored database starts or
 contains the expected application records. Those checks run in the
 [physical restore phase](physical-restore.md#acceptance-criteria).

@@ -1,13 +1,19 @@
 # PostgreSQL Disaster Recovery
 
-A PostgreSQL recovery lab built in small, verifiable milestones. The implemented
-local foundation combines a database image built from a digest-pinned base,
-persistent storage, WAL archiving, physical backups, and verified isolated restore.
+A PostgreSQL recovery lab built in small, verifiable milestones. It combines a
+database image built from a digest-pinned base, persistent storage, WAL archiving,
+physical backups, isolated restore, PITR, and measured recovery results.
 
 ## Project Status
 
-The **Local PostgreSQL Foundation** is released as `v0.1.0` and
-**Physical Backup And Restore** as `v0.2.0`, on one Docker host:
+Released capabilities run on one Docker host:
+
+| Release | Capability |
+| --- | --- |
+| `v0.1.0` | Local PostgreSQL Foundation |
+| `v0.2.0` | Physical Backup And Restore |
+| `v0.3.0` | Point-In-Time Recovery |
+| `v0.4.0` | Recovery Measurement |
 
 ```text
 empty database volume
@@ -19,8 +25,9 @@ empty database volume
   -> exact record comparison, new writes, and failure detection
 ```
 
-Recovery to a selected UTC time before accidental deletion is implemented.
-Current work adds measured recovery duration and dataset-completeness reports.
+Recovery to a selected UTC time before accidental deletion and acknowledged-loss
+measurement are implemented. The next capability checks backup freshness and
+current WAL delivery with `make backup-health`.
 
 ## Local PostgreSQL Foundation
 
@@ -114,6 +121,18 @@ recovered acknowledgment to the fault trigger. See
 `BACKUP_LABEL=YYYYMMDD-HHMMSSF make restore-latest` recovers the selected backup
 to the end of available archived WAL.
 
+## Backup Health
+
+`make backup-health` prints a JSON report and succeeds only when the running
+primary has a completed full backup within the configured age limit and an
+active WAL delivery check succeeds. Defaults are a 24-hour backup age limit
+and a 10-second WAL archive timeout. The check forces a WAL switch.
+
+The report includes archiver statistics for diagnosis. Historical errors and
+an old archive timestamp alone do not fail a successful active check.
+See [backup health operations](docs/backup-health.md) for limits, exit codes,
+failure handling, and the standalone acceptance scenario.
+
 ## Security Defaults
 
 - official PostgreSQL base image pinned to an immutable digest;
@@ -174,6 +193,8 @@ default Compose project `postgres-dr-local`.
 | `make backup` | Check archiving, create a full backup, apply retention, and verify repository integrity | Completed physical backup and required WAL |
 | `make backup-info` | Display available backups and WAL ranges | Existing data and backups unchanged |
 | `make backup-verify` | Verify completed backup files and archives; reject empty or invalid results | Existing data and backups unchanged |
+| `make backup-health` | Report completed backup freshness, database reachability, and active WAL delivery as JSON | Database stays running; a WAL switch can add archived WAL; no backup is created |
+| `make backup-health-acceptance` | Verify health, missing or stale backup, archive outage, recovery, and stopped primary | JSON evidence retained under `.local/reports/`; disposable containers, network, volumes, and password removed |
 | `BACKUP_LABEL=... make restore` | Restore the selected full backup into an empty target and wait for recovery to finish | Restored database running; source data and repository unchanged |
 | `make restore-psql` | Open a SQL session in the restored database | Restored database stays running after `\q` |
 | `make restore-down` | Stop and remove only the restored container | All volumes retained; source container unaffected |
@@ -251,6 +272,16 @@ make backup-verify
 `make backup-verify` checks existing copies and fails if none exists or a file is
 invalid. Neither command restores data. See [backup operations](docs/backup-wal-archiving.md)
 for configuration, retention, and troubleshooting.
+
+Check backup age and current archive delivery together:
+
+```bash
+make backup-health
+```
+
+The primary must be running. A healthy result does not replace integrity
+verification or a restore exercise. Configure the limits using
+[backup health operations](docs/backup-health.md).
 
 ## Restore Into A Separate Database
 
@@ -348,14 +379,15 @@ If cleanup fails, the command reports the test project and retained secret path.
 
 | Capability | Status |
 | --- | --- |
-| Local PostgreSQL deployment | Complete locally |
-| Container recreation and data comparison | Complete locally |
-| Pull-request CI | Active; restore changes await PR validation |
+| Local PostgreSQL deployment | Released in `v0.1.0` |
+| Container recreation and data comparison | Released in `v0.1.0` |
+| Pull-request CI | Active |
 | PostgreSQL image with pgBackRest | Complete |
-| Physical backup and WAL archiving | Complete |
-| Restore into an empty volume | Complete locally |
-| Point-in-time recovery | Planned |
-| RPO/RTO measurement | Planned |
+| Physical backup and WAL archiving | Released in `v0.2.0` |
+| Restore into an empty volume | Released in `v0.2.0` |
+| Point-in-time recovery | Released in `v0.3.0` |
+| Verified recovery duration and acknowledged-loss measurement | Released in `v0.4.0` |
+| Backup freshness and active WAL delivery health | Verified locally; PR validation pending |
 
 See the [delivery roadmap](docs/roadmap.md) for milestone scope,
 [contribution guidelines](CONTRIBUTING.md) for the PR workflow, and
@@ -384,10 +416,11 @@ repository encryption, scheduling, or off-host replication. Retention is
 configured but multi-backup expiration is not exercised by the current acceptance
 run. Package dependencies resolve from live APT repositories.
 
-The current checks prove backup creation, WAL delivery, file integrity, and
-restore into a separate volume with the source stopped. Both databases and the
-repository still share one host. Disk loss, crash recovery, off-host restoration,
-replication, application cutover, and failover remain outside the verified boundary.
+The current checks prove backup creation, WAL delivery, file integrity, PITR,
+and restore into a separate volume with the source stopped. A controlled primary
+crash exercise measures acknowledged loss during archive-only recovery. Both
+databases and the repository still share one host. Backup health runs on demand;
+no scheduler or alert transport is installed.
 
 SQL exercises use the bootstrap administrator over the local container socket.
 Application roles and remote authentication are not yet covered. Compose file
