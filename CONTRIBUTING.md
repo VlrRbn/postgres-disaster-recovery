@@ -21,6 +21,20 @@ The acceptance command operates on a disposable database. For documentation-only
 changes, verify commands, links, and formatting; rerun the database scenario when
 a documented runtime procedure changes.
 
+## Script Readability
+
+- Keep the execution order visible at the end of a shell script or in Python's
+  `main()`. Name functions after complete actions such as preparing a database,
+  verifying recovery, or saving a report.
+- Show numbered progress stages in long acceptance scenarios. Keep short
+  commands compact; a single operation does not need an extra framework.
+- Separate CLI argument parsing, data collection, validation, and output when
+  they make the main flow difficult to follow.
+- Preserve machine-readable stdout: JSON commands print JSON only. Put diagnostic
+  messages on stderr and never include passwords, keys, or tokens.
+- Reuse existing scripts and local helpers. Validate behavior with the relevant
+  disposable acceptance scenarios when restructuring an operational command.
+
 ## Pull Requests
 
 Describe the resulting behavior, the reason for the change, and the validation

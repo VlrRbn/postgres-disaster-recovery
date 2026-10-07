@@ -28,23 +28,34 @@ if (len(info) != 1 or info[0]["name"] != "orders"
     fi
 }
 
-if (( $# != 1 )); then
+initialize_repository() {
+    pgbackrest stanza-create
+    pgbackrest check
+}
+
+create_full_backup() {
+    pgbackrest check
+    pgbackrest --type=full backup
+    verify_repository
+}
+
+usage() {
     echo 'Usage: backup.sh {init|check|full|info|verify}' >&2
     exit 2
-fi
+}
 
+(( $# == 1 )) || usage
+
+# Dispatch one operator command; verification is shared with full backup creation.
 case "$1" in
     init)
-        pgbackrest stanza-create
-        pgbackrest check
+        initialize_repository
         ;;
     check)
         pgbackrest check
         ;;
     full)
-        pgbackrest check
-        pgbackrest --type=full backup
-        verify_repository
+        create_full_backup
         ;;
     info)
         pgbackrest info
@@ -53,7 +64,6 @@ case "$1" in
         verify_repository
         ;;
     *)
-        echo 'Usage: backup.sh {init|check|full|info|verify}' >&2
-        exit 2
+        usage
         ;;
 esac

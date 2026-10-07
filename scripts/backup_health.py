@@ -118,7 +118,7 @@ def run_command(command, timeout):
     return result.stdout
 
 
-def main():
+def parse_args():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--backup-max-age-seconds', type=positive_seconds,
                         default=os.environ.get('PGDR_BACKUP_MAX_AGE_SECONDS', '86400'))
@@ -128,6 +128,10 @@ def main():
     if args.archive_timeout_seconds > 86400:
         parser.error('Archive timeout must be at most 86400 seconds')
 
+    return args
+
+
+def collect_health_inputs(archive_timeout):
     root = Path(__file__).resolve().parent.parent
     compose = ['bash', str(root / 'scripts/compose.sh'), 'exec', '-T', '--user', 'postgres', 'postgres']
     pgbackrest = [*compose, 'pgbackrest', '--stanza=orders', '--log-level-console=error']
@@ -140,8 +144,8 @@ def main():
 
     archive_error = None
     try:
-        run_command([*pgbackrest, f'--archive-timeout={args.archive_timeout_seconds}', 'check'],
-                    timeout=args.archive_timeout_seconds + 30)
+        run_command([*pgbackrest, f'--archive-timeout={archive_timeout}', 'check'],
+                    timeout=archive_timeout + 30)
     except RuntimeError as error:
         archive_error = str(error)
 
@@ -153,10 +157,18 @@ def main():
     except (RuntimeError, ValueError) as error:
         errors['database'] = str(error)
 
+    return info, archiver, archive_error, errors
+
+
+def main():
+    args = parse_args()
+    info, archiver, archive_error, errors = collect_health_inputs(args.archive_timeout_seconds)
     report = build_report(info, archiver, archive_error, now=datetime.now(timezone.utc),
                           max_age=args.backup_max_age_seconds,
                           archive_timeout=args.archive_timeout_seconds,
-                          project=os.environ.get('PGDR_PROJECT', 'postgres-dr-local'),
+                          project=os.environ.get('PGDR_PROJECT', 'postgres-dr-s3'
+                                                 if os.environ.get('PGDR_REPOSITORY') == 's3'
+                                                 else 'postgres-dr-local'),
                           collection_errors=errors)
     print(json.dumps(report, indent=2))
     return 0 if report['status'] == 'healthy' else 1

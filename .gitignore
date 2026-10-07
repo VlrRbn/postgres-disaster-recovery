@@ -3,3 +3,7 @@
 *.dump
 *.backup
 __pycache__/
+.terraform/
+*.tfstate
+*.tfstate.*
+*.tfplan

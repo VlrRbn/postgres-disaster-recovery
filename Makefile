@@ -1,4 +1,4 @@
-.PHONY: setup check image up psql down acceptance backup-init backup-check backup backup-info backup-verify backup-health backup-health-acceptance restore restore-time restore-latest restore-up restore-psql restore-down pgadmin-up pgadmin-down pgadmin-acceptance rpo-acceptance
+.PHONY: setup check image up psql down acceptance backup-init backup-check backup backup-info backup-verify backup-health backup-health-acceptance restore restore-time restore-latest restore-up restore-psql restore-down pgadmin-up pgadmin-down pgadmin-acceptance rpo-acceptance s3-setup s3-up s3-down s3-psql s3-backup s3-info s3-check s3-health s3-acceptance
 
 setup:
 	bash scripts/setup.sh
@@ -8,10 +8,40 @@ check:
 	shellcheck scripts/*.sh
 	python3 -m unittest discover -s tests -p 'test_*.py' -v
 	bash scripts/compose.sh config --quiet
+	PGDR_REPOSITORY=s3 bash scripts/compose.sh config --quiet
 	git diff --check
 
 image:
 	bash scripts/compose.sh build postgres
+
+s3-setup:
+	python3 scripts/setup_s3.py
+	PGDR_REPOSITORY=s3 bash scripts/setup.sh
+
+s3-up: s3-setup
+	PGDR_REPOSITORY=s3 bash scripts/compose.sh up --build --force-recreate --detach --wait --wait-timeout 120 postgres
+	PGDR_REPOSITORY=s3 bash scripts/backup.sh init
+
+s3-down:
+	PGDR_REPOSITORY=s3 bash scripts/compose.sh down
+
+s3-psql:
+	PGDR_REPOSITORY=s3 bash scripts/compose.sh exec --user postgres postgres psql -X -U postgres -d orders
+
+s3-backup:
+	PGDR_REPOSITORY=s3 bash scripts/backup.sh full
+
+s3-info:
+	PGDR_REPOSITORY=s3 bash scripts/backup.sh info
+
+s3-check:
+	PGDR_REPOSITORY=s3 bash scripts/backup.sh check
+
+s3-health:
+	@PGDR_REPOSITORY=s3 python3 scripts/backup_health.py
+
+s3-acceptance:
+	bash scripts/s3-acceptance.sh
 
 up: setup
 	bash scripts/compose.sh up --build --detach --wait --wait-timeout 120

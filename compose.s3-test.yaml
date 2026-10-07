@@ -1,0 +1,37 @@
+# Local API fixture only: no AWS credentials, resources, or off-host claims.
+services:
+  moto:
+    image: ghcr.io/getmoto/motoserver@sha256:91fd602a21f49cf9eb82fdf474015a3c131d40104c8297ea6a2ca920708ae32c
+    entrypoint: [moto_server]
+    command: [-H, 0.0.0.0, -p, '5000']
+    healthcheck:
+      test: [CMD, python, -c, "import urllib.request; urllib.request.urlopen('http://127.0.0.1:5000/', timeout=3)"]
+      interval: 2s
+      timeout: 5s
+      retries: 30
+    mem_limit: 512m
+    cpus: 1.0
+    networks:
+      - repository
+
+  s3:
+    image: nginx:1.30.5-alpine@sha256:0985e772fb9f729e6fa0980da05fca5d9c468e870eed43071545afa9d2e27d94
+    volumes:
+      - ./tests/s3/nginx.conf:/etc/nginx/conf.d/default.conf:ro
+      - ${PGDR_S3_DIR}/server.crt:/etc/nginx/ssl/server.crt:ro
+      - ${PGDR_S3_DIR}/server.key:/etc/nginx/ssl/server.key:ro
+    depends_on:
+      moto:
+        condition: service_healthy
+    mem_limit: 64m
+    cpus: 0.5
+    networks:
+      - repository
+
+  postgres:
+    volumes:
+      - ${PGDR_S3_DIR}/server.crt:/opt/s3-ca.crt:ro
+
+networks:
+  repository:
+    internal: true
