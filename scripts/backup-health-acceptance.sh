@@ -44,36 +44,57 @@ expect_health() {
     fi
 }
 
-bash "$root/scripts/setup.sh"
-"${compose[@]}" up --build --detach --wait --wait-timeout 120 postgres
-expect_health uninitialized 1
+step() {
+    printf '\n[%s/6] %s\n' "$1" "$2"
+}
 
-bash "$root/scripts/backup.sh" init
-expect_health empty 1
+prepare_primary() {
+    step 1 "Start a primary and detect missing repository metadata"
+    bash "$root/scripts/setup.sh"
+    "${compose[@]}" up --build --detach --wait --wait-timeout 120 postgres
+    expect_health uninitialized 1
+}
 
-sql -c "INSERT INTO orders (reference, amount_cents) VALUES ('health-preserved', 100);"
-bash "$root/scripts/backup.sh" full
-expect_health healthy 0
+verify_backup_freshness() {
+    step 2 "Detect missing and stale backups; accept a fresh full copy"
+    bash "$root/scripts/backup.sh" init
+    expect_health empty 1
 
-# Let a real completed backup exceed a deliberately short limit; metadata is untouched.
-sleep 2
-expect_health stale 1 PGDR_BACKUP_MAX_AGE_SECONDS=1
+    sql -c "INSERT INTO orders (reference, amount_cents) VALUES ('health-preserved', 100);"
+    bash "$root/scripts/backup.sh" full
+    expect_health healthy 0
 
-# Only this unique disposable archive is restricted; backups remain readable.
-"${compose[@]}" exec -T --user postgres postgres chmod -R a-w /var/lib/pgbackrest/archive
-expect_health archive-outage 1
+    # Let a real completed backup exceed a deliberately short limit; metadata is untouched.
+    sleep 2
+    expect_health stale 1 PGDR_BACKUP_MAX_AGE_SECONDS=1
+}
 
-"${compose[@]}" exec -T --user postgres postgres chmod -R u+w /var/lib/pgbackrest/archive
-# Restart wakes the archiver immediately instead of waiting for its retry interval.
-"${compose[@]}" restart postgres
-"${compose[@]}" up --no-build --detach --wait --wait-timeout 120 postgres
-expect_health recovered 0
-[[ $(sql -Atc "SELECT count(*) FROM orders WHERE reference = 'health-preserved' AND amount_cents = 100;") == 1 ]]
+verify_archive_outage() {
+    step 3 "Detect failed WAL delivery with a fresh backup available"
+    # Only this unique disposable archive is restricted; backups remain readable.
+    "${compose[@]}" exec -T --user postgres postgres chmod -R a-w /var/lib/pgbackrest/archive
+    expect_health archive-outage 1
+}
 
-"${compose[@]}" stop postgres
-expect_health stopped 1
+verify_archive_recovery() {
+    step 4 "Restore WAL delivery without clearing historical errors"
+    "${compose[@]}" exec -T --user postgres postgres chmod -R u+w /var/lib/pgbackrest/archive
+    # Restart wakes the archiver immediately instead of waiting for its retry interval.
+    "${compose[@]}" restart postgres
+    "${compose[@]}" up --no-build --detach --wait --wait-timeout 120 postgres
+    expect_health recovered 0
+    [[ $(sql -Atc "SELECT count(*) FROM orders WHERE reference = 'health-preserved' AND amount_cents = 100;") == 1 ]]
+}
 
-python3 - "$work" "$root/.local/reports/$PGDR_PROJECT-health.json" "$PGDR_PROJECT" <<'PY'
+verify_stopped_primary() {
+    step 5 "Report an unavailable primary as unhealthy JSON"
+    "${compose[@]}" stop postgres
+    expect_health stopped 1
+}
+
+write_report() {
+    step 6 "Validate every health result and save the acceptance report"
+    python3 - "$work" "$root/.local/reports/$PGDR_PROJECT-health.json" "$PGDR_PROJECT" <<'PY'
 import json
 from pathlib import Path
 import sys
@@ -104,5 +125,14 @@ with output.open('x') as out:
     out.write('\n')
 print(f'Backup health acceptance report: {output}')
 PY
-echo 'PASS: missing metadata and backups, stale backup, archive outage and stopped primary detected.'
-echo 'PASS: healthy backup and WAL delivery verified; recovered archiver accepts historical failures.'
+    echo 'PASS: missing metadata and backups, stale backup, archive outage and stopped primary detected.'
+    echo 'PASS: healthy backup and WAL delivery verified; recovered archiver accepts historical failures.'
+}
+
+# Run one complete disposable acceptance scenario.
+prepare_primary
+verify_backup_freshness
+verify_archive_outage
+verify_archive_recovery
+verify_stopped_primary
+write_report

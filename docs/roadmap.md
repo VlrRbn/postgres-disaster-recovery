@@ -9,7 +9,8 @@ names. Each release marks a completed and verified milestone.
 | Physical Backup And Restore | `v0.2.0` | Released |
 | Point-In-Time Recovery | `v0.3.0` | Released |
 | Recovery Measurement | `v0.4.0` | Released |
-| Backup Health | `v0.5.0` | Verified locally; PR and release pending |
+| Backup Health | `v0.5.0` | Released |
+| External Backup And Clean-Host Recovery | `v0.6.0` | S3 repository verified locally; replacement-host recovery pending |
 
 ## Physical Backup Delivery Steps
 
@@ -47,6 +48,17 @@ requires successful current WAL delivery, rejects missing or stale backups and
 an unavailable primary, and distinguishes recovered archiving from historical
 error counters. See [backup health](backup-health.md).
 
+## External Backup Delivery Steps
+
+| Step | Merge Criteria | State |
+| --- | --- | --- |
+| AWS S3 Repository And WAL | Dedicated private bucket, prefix-scoped writer role, verified TLS, full backup and WAL, retention rollover with recovery, and operational docs | Verified locally; PR pending |
+| Clean-Host Recovery | Recover using only S3 objects on a fresh host/runtime, use a separate reader identity, compare expected data, and confirm new writes | Planned |
+
+The first PR creates and validates external storage and its backup/WAL path.
+The next PR exercises replacement-host recovery. Release notes and `v0.6.0`
+follow the completed recovery contract. See [S3 operations](s3-repository.md).
+
 ## Acceptance Contracts
 
 - **Physical Backup And Restore:** create a pgBackRest backup, restore into
@@ -57,6 +69,8 @@ error counters. See [backup health](backup-health.md).
   with explicit RPO and RTO measurement boundaries.
 - **Backup Health:** detect missing or stale completed full backups and failed
   current WAL delivery; report successful recovery after an archive outage.
+- **External Backup And Clean-Host Recovery:** preserve backups and WAL outside
+  the source host, then verify recovery without its local database or repository.
 
 ## Scope Rules
 
@@ -65,5 +79,5 @@ error counters. See [backup health](backup-health.md).
 - Local reproducibility remains supported.
 - Claim backup recovery only after restoration has been exercised.
 
-Off-host backup storage, retention, alerting, replication, and failover are
-possible later capabilities. Their scope and release targets are not yet defined.
+Retention rollover, alerting, replication, and failover are possible later
+capabilities. Their scope and release targets are not yet defined.

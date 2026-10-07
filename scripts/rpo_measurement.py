@@ -98,7 +98,7 @@ def read_json(path):
         return json.load(source)
 
 
-def main():
+def parse_args():
     parser = argparse.ArgumentParser(description=__doc__)
     commands = parser.add_subparsers(dest="command", required=True)
     record = commands.add_parser("record")
@@ -111,28 +111,42 @@ def main():
     for name in ("backup", "project", "last-archived-wal"):
         report.add_argument(f"--{name}", required=True)
     args = parser.parse_args()
+    return parser, args
+
+
+def create_report(args):
+    with args.journal.open() as source:
+        acknowledgments = [json.loads(line) for line in source]
+    with args.recovered.open(newline="") as source:
+        recovered = list(csv.reader(source))
+    result = build_rpo_report(acknowledgments, recovered, read_json(args.fault),
+                              read_json(args.start), read_json(args.verified))
+    root = Path(__file__).resolve().parent.parent
+    result["source_commit"] = subprocess.check_output(
+        ["git", "rev-parse", "HEAD"], cwd=root, text=True).strip()
+    result["worktree_dirty"] = bool(subprocess.check_output(
+        ["git", "status", "--porcelain"], cwd=root, text=True).strip())
+    result["backup_label"] = args.backup
+    result["project"] = args.project
+    result["last_archived_wal"] = args.last_archived_wal
+    return result
+
+
+def save_report(output, result):
+    output.parent.mkdir(parents=True, exist_ok=True)
+    with output.open("x") as out:
+        json.dump(result, out, indent=2)
+        out.write("\n")
+
+
+def main():
+    parser, args = parse_args()
     try:
         if args.command == "record":
             record_orders(args.journal, args.first, args.count)
             return
-        with args.journal.open() as source:
-            acknowledgments = [json.loads(line) for line in source]
-        with args.recovered.open(newline="") as source:
-            recovered = list(csv.reader(source))
-        result = build_rpo_report(acknowledgments, recovered, read_json(args.fault),
-                                  read_json(args.start), read_json(args.verified))
-        root = Path(__file__).resolve().parent.parent
-        result["source_commit"] = subprocess.check_output(
-            ["git", "rev-parse", "HEAD"], cwd=root, text=True).strip()
-        result["worktree_dirty"] = bool(subprocess.check_output(
-            ["git", "status", "--porcelain"], cwd=root, text=True).strip())
-        result["backup_label"] = args.backup
-        result["project"] = args.project
-        result["last_archived_wal"] = args.last_archived_wal
-        args.output.parent.mkdir(parents=True, exist_ok=True)
-        with args.output.open("x") as out:
-            json.dump(result, out, indent=2)
-            out.write("\n")
+        result = create_report(args)
+        save_report(args.output, result)
     except (ValueError, OSError, KeyError, subprocess.CalledProcessError) as error:
         parser.exit(1, f"RPO measurement failed: {error}\n")
     print(f"RPO report: {args.output}")

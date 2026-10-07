@@ -36,5 +36,25 @@ jobs:
         run: make backup-health-acceptance
       - name: Show backup health acceptance
         run: cat .local/reports/*-health.json
+      - name: Verify S3 API backup and WAL storage
+        run: make s3-acceptance
+      - name: Show S3 API acceptance
+        run: cat .local/reports/*-s3.json
       - name: Verify optional pgAdmin access and persistence
         run: make pgadmin-acceptance
+
+  repository-infrastructure:
+    name: S3 infrastructure validation
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Validate Terraform without AWS credentials
+        run: |
+          docker run --rm --user "$(id -u):$(id -g)" \
+            --volume "$PWD/terraform/s3-repository:/work" --workdir /work \
+            --entrypoint /bin/sh \
+            hashicorp/terraform:1.14.4@sha256:5dbdc45b411f4dd56c5b576b0ded0554859796fee2eaee9edd58dddddeac1acb \
+            -ec 'terraform fmt -check && terraform init -backend=false -input=false -lockfile=readonly && terraform validate'

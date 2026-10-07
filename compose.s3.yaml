@@ -1,0 +1,29 @@
+services:
+  postgres:
+    extends:
+      file: compose.yaml
+      service: postgres
+    entrypoint: [bash, /opt/s3-entrypoint.sh]
+    volumes: !override
+      - pgdata:/var/lib/postgresql/data
+      - ./sql/001-orders.sql:/docker-entrypoint-initdb.d/001-orders.sql:ro
+      - ./scripts/s3-entrypoint.sh:/opt/s3-entrypoint.sh:ro
+    secrets:
+      - pgbackrest_s3
+    networks:
+      - repository
+
+secrets:
+  postgres_password:
+    file: ${PGDR_SECRET_FILE:-./.local/s3/postgres_password}
+  pgbackrest_s3:
+    file: ${PGDR_S3_DIR:-./.local/s3}/pgbackrest.conf
+
+volumes:
+  pgdata:
+
+networks:
+  database:
+    internal: true
+  repository:
+    # Outbound HTTPS to AWS S3; PostgreSQL still publishes no host port.

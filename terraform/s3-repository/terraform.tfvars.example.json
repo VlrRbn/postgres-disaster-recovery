@@ -1,0 +1,7 @@
+{
+  "account_id": "123456789012",
+  "region": "eu-west-1",
+  "bucket_name": "your-globally-unique-postgres-dr-bucket",
+  "repository_prefix": "postgres-dr/orders",
+  "trusted_principal_arn": "arn:aws:iam::123456789012:role/your-bootstrap-role"
+}

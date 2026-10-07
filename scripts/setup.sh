@@ -2,12 +2,22 @@
 set -euo pipefail
 
 root=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
-case "${1:-postgres}" in
-    postgres) secret_file=${PGDR_SECRET_FILE:-$root/.local/postgres_password} ;;
-    pgadmin) secret_file=${PGDR_PGADMIN_SECRET_FILE:-$root/.local/pgadmin_password} ;;
-    *) echo 'Usage: setup.sh [postgres|pgadmin]' >&2; exit 2 ;;
-esac
-python3 - "$secret_file" <<'PY'
+select_secret_file() {
+    case "$1" in
+        postgres)
+            if [[ ${PGDR_REPOSITORY:-local} == s3 ]]; then
+                secret_file=${PGDR_SECRET_FILE:-${PGDR_S3_DIR:-$root/.local/s3}/postgres_password}
+            else
+                secret_file=${PGDR_SECRET_FILE:-$root/.local/postgres_password}
+            fi
+            ;;
+        pgadmin) secret_file=${PGDR_PGADMIN_SECRET_FILE:-$root/.local/pgadmin_password} ;;
+        *) echo 'Usage: setup.sh [postgres|pgadmin]' >&2; exit 2 ;;
+    esac
+}
+
+create_or_preserve_secret() {
+    python3 - "$secret_file" <<'PY'
 import os
 from pathlib import Path
 import secrets
@@ -26,3 +36,8 @@ else:
         out.write(secrets.token_hex(32) + "\n")
     print(f"Local password generated: {path}")
 PY
+}
+
+# Select the runtime's password file, then create it only when absent.
+select_secret_file "${1:-postgres}"
+create_or_preserve_secret

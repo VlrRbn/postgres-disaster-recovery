@@ -58,7 +58,7 @@ def build_report(start, verified, expected, recovered, later, target, incident):
     }
 
 
-def main():
+def parse_args():
     parser = argparse.ArgumentParser(description=__doc__)
     commands = parser.add_subparsers(dest="command", required=True)
     stamp = commands.add_parser("stamp")
@@ -69,26 +69,40 @@ def main():
     for name in ("target", "incident", "backup", "project"):
         report.add_argument(f"--{name}", required=True)
     args = parser.parse_args()
+    return parser, args
+
+
+def create_report(args):
+    result = build_report(load_json(args.start), load_json(args.verified),
+                          load_rows(args.expected), load_rows(args.recovered),
+                          load_rows(args.later), args.target, args.incident)
+    root = Path(__file__).resolve().parent.parent
+    result["source_commit"] = subprocess.check_output(
+        ["git", "rev-parse", "HEAD"], cwd=root, text=True).strip()
+    result["worktree_dirty"] = bool(subprocess.check_output(
+        ["git", "status", "--porcelain"], cwd=root, text=True).strip())
+    result["backup_label"] = args.backup
+    result["project"] = args.project
+    return result
+
+
+def save_result(output, result):
+    output.parent.mkdir(parents=True, exist_ok=True)
+    # Exclusive creation preserves the result of an earlier successful run.
+    with output.open("x") as out:
+        json.dump(result, out, indent=2)
+        out.write("\n")
+
+
+def main():
+    parser, args = parse_args()
     try:
         if args.command == "stamp":
             result = {"utc": datetime.now(timezone.utc).isoformat(),
                       "monotonic_ns": time.monotonic_ns()}
         else:
-            result = build_report(load_json(args.start), load_json(args.verified),
-                                  load_rows(args.expected), load_rows(args.recovered),
-                                  load_rows(args.later), args.target, args.incident)
-            root = Path(__file__).resolve().parent.parent
-            result["source_commit"] = subprocess.check_output(
-                ["git", "rev-parse", "HEAD"], cwd=root, text=True).strip()
-            result["worktree_dirty"] = bool(subprocess.check_output(
-                ["git", "status", "--porcelain"], cwd=root, text=True).strip())
-            result["backup_label"] = args.backup
-            result["project"] = args.project
-        args.output.parent.mkdir(parents=True, exist_ok=True)
-        # A new file per run prevents a previous successful report being overwritten.
-        with args.output.open("x") as out:
-            json.dump(result, out, indent=2)
-            out.write("\n")
+            result = create_report(args)
+        save_result(args.output, result)
     except (ValueError, OSError, KeyError, subprocess.CalledProcessError) as error:
         parser.exit(1, f"Recovery report failed: {error}\n")
     if args.command == "report":

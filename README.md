@@ -14,6 +14,7 @@ Released capabilities run on one Docker host:
 | `v0.2.0` | Physical Backup And Restore |
 | `v0.3.0` | Point-In-Time Recovery |
 | `v0.4.0` | Recovery Measurement |
+| `v0.5.0` | Backup Health |
 
 ```text
 empty database volume
@@ -26,8 +27,10 @@ empty database volume
 ```
 
 Recovery to a selected UTC time before accidental deletion and acknowledged-loss
-measurement are implemented. The next capability checks backup freshness and
-current WAL delivery with `make backup-health`.
+measurement are implemented. `make backup-health` checks backup freshness and
+current WAL delivery. The next milestone adds an external AWS S3 repository and
+recovery on a clean replacement host; its S3 backup and WAL delivery step is
+verified locally.
 
 ## Local PostgreSQL Foundation
 
@@ -133,6 +136,14 @@ an old archive timestamp alone do not fail a successful active check.
 See [backup health operations](docs/backup-health.md) for limits, exit codes,
 failure handling, and the standalone acceptance scenario.
 
+## AWS S3 Repository
+
+The optional [AWS S3 runtime](docs/s3-repository.md) uses a dedicated Terraform
+bucket and prefix-scoped IAM writer role. `make s3-up`, `make s3-backup`, and
+`make s3-check` send backup data and WAL outside the database host through
+verified HTTPS. `make s3-down` retains the S3 objects and the separate local
+database volume. Clean-host recovery is the next delivery step.
+
 ## Security Defaults
 
 - official PostgreSQL base image pinned to an immutable digest;
@@ -195,6 +206,11 @@ default Compose project `postgres-dr-local`.
 | `make backup-verify` | Verify completed backup files and archives; reject empty or invalid results | Existing data and backups unchanged |
 | `make backup-health` | Report completed backup freshness, database reachability, and active WAL delivery as JSON | Database stays running; a WAL switch can add archived WAL; no backup is created |
 | `make backup-health-acceptance` | Verify health, missing or stale backup, archive outage, recovery, and stopped primary | JSON evidence retained under `.local/reports/`; disposable containers, network, volumes, and password removed |
+| `make s3-up` | Refresh writer credentials, build/recreate the separate S3 primary, initialize its stanza, and check S3 WAL delivery | S3 primary running; password, private config, database volume, and S3 objects retained |
+| `make s3-backup` | Create and verify a full backup in the configured AWS S3 prefix | Full backup and required WAL in S3 |
+| `make s3-health` | Report S3 backup freshness and current WAL delivery as JSON | S3 primary running; active probe can add WAL |
+| `make s3-down` | Remove only the S3 lab containers and networks | S3 objects, S3 lab database volume, settings, and passwords retained |
+| `make s3-acceptance` | Verify S3 API backup and WAL through an isolated local TLS fixture | JSON report and cached images retained; fixture containers, networks, volume, and temporary secrets removed |
 | `BACKUP_LABEL=... make restore` | Restore the selected full backup into an empty target and wait for recovery to finish | Restored database running; source data and repository unchanged |
 | `make restore-psql` | Open a SQL session in the restored database | Restored database stays running after `\q` |
 | `make restore-down` | Stop and remove only the restored container | All volumes retained; source container unaffected |
@@ -387,7 +403,9 @@ If cleanup fails, the command reports the test project and retained secret path.
 | Restore into an empty volume | Released in `v0.2.0` |
 | Point-in-time recovery | Released in `v0.3.0` |
 | Verified recovery duration and acknowledged-loss measurement | Released in `v0.4.0` |
-| Backup freshness and active WAL delivery health | Verified locally; PR validation pending |
+| Backup freshness and active WAL delivery health | Released in `v0.5.0` |
+| AWS S3 full backup and WAL storage | Verified locally; PR validation pending |
+| Recovery from S3 on a clean replacement host | Planned |
 
 See the [delivery roadmap](docs/roadmap.md) for milestone scope,
 [contribution guidelines](CONTRIBUTING.md) for the PR workflow, and
@@ -411,16 +429,19 @@ password in an initialized database.
 
 ## Production Boundaries
 
-Backups and WAL are stored on the same Docker host as the database, without
-repository encryption, scheduling, or off-host replication. Retention is
-configured but multi-backup expiration is not exercised by the current acceptance
-run. Package dependencies resolve from live APT repositories.
+The default local runtime stores backups and WAL on the database's Docker host.
+The optional S3 runtime stores them in AWS with SSE-S3 encryption and bucket
+versioning. Neither runtime installs backup scheduling. Retention is configured
+and S3 expiration is exercised with three full backups and recovery from the
+oldest retained copy. Local repository retention rollover remains untested.
+Package dependencies resolve from live APT repositories.
 
 The current checks prove backup creation, WAL delivery, file integrity, PITR,
 and restore into a separate volume with the source stopped. A controlled primary
 crash exercise measures acknowledged loss during archive-only recovery. Both
-databases and the repository still share one host. Backup health runs on demand;
-no scheduler or alert transport is installed.
+databases and the local repository still share one host. S3 backup creation and
+current WAL delivery are separately verified, including restricted IAM access.
+Backup health runs on demand; no scheduler or alert transport is installed.
 
 SQL exercises use the bootstrap administrator over the local container socket.
 Application roles and remote authentication are not yet covered. Compose file

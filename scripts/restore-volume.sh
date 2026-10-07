@@ -7,6 +7,7 @@ if (( $# < 1 || $# > 2 )) || [[ ! "$1" =~ ^[0-9]{8}-[0-9]{6}F$ ]]; then
     exit 2
 fi
 
+# Select the recovery boundary: backup consistency, latest WAL, or UTC time.
 recovery_args=(--type=immediate --target-action=promote)
 if (( $# == 2 )) && [[ "$2" == latest ]]; then
     recovery_args=(--type=default --target-timeline=current)
@@ -20,11 +21,13 @@ elif (( $# == 2 )); then
     recovery_args=(--type=time "--target=$2" --target-timeline=current --target-action=promote)
 fi
 
+# Never overwrite an existing restore target.
 target=/var/lib/postgresql/data
 if [[ -n $(find "$target" -mindepth 1 -maxdepth 1 -print -quit) ]]; then
     echo 'Restore target is not empty; refusing to overwrite existing data.' >&2
     exit 1
 fi
 
+# Recovery starts with archiving disabled so it cannot write back to the repository.
 exec pgbackrest --stanza=orders --set="$1" "${recovery_args[@]}" \
     --archive-mode=off restore

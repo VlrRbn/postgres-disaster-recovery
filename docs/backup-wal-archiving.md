@@ -70,6 +70,10 @@ full backup, automatic expiration can remove the oldest backup and WAL no longer
 needed by the retained copies. This rollover is configured but not tested by the
 single-backup acceptance scenario. No scheduled backup job is installed.
 
+The optional [S3 acceptance](s3-repository.md#acceptance-and-boundaries) exercises
+the same full-backup count policy on its versioned object-store fixture and
+restores the oldest retained copy with post-backup WAL after expiration.
+
 ## Check Existing Backups
 
 ```bash
