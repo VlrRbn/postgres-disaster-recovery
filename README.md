@@ -140,14 +140,19 @@ failure handling, and the standalone acceptance scenario.
 
 The optional [AWS S3 runtime](docs/s3-repository.md) uses a dedicated Terraform
 bucket and prefix-scoped IAM writer role. `make s3-up`, `make s3-backup`, and
-`make s3-check` send backup data and WAL outside the database host through
-verified HTTPS. `make s3-down` retains the S3 objects and the separate local
-database volume. Clean-host recovery is the next delivery step.
+`make s3-check` send backup data and WAL outside the database host through verified
+HTTPS. `make s3-down` retains the S3 objects and the separate local database volume.
 
-The prepared [EC2 workload identity](docs/ec2-workload-identity.md) mode uses
+The [EC2 workload identity](docs/ec2-workload-identity.md) mode uses
 `PGDR_S3_AUTH_MODE=instance` and role credentials from IMDS instead of keys in
-the config. Separate writer/reader instance profiles are defined in Terraform;
-live EC2 deployment and replacement-host recovery remain pending.
+the config. Separate writer/reader instance profiles are defined in Terraform.
+
+The [clean-host recovery procedure](docs/ec2-s3-recovery.md) adds
+`make s3-restore-time` for an empty recovery volume and a separate temporary EC2
+deployment with the reader profile. Local API checks exercise the operational
+restore commands. A live EC2 run recovered nine exact rows with the source stopped,
+used the reader role, and confirmed new-write persistence. See
+[recovery evidence](evidence/ec2-s3-recovery-acceptance-20261013.md).
 
 ## Security Defaults
 
@@ -216,6 +221,10 @@ default Compose project `postgres-dr-local`.
 | `make s3-health` | Report S3 backup freshness and current WAL delivery as JSON | S3 primary running; active probe can add WAL |
 | `make s3-down` | Remove only the S3 lab containers and networks | S3 objects, S3 lab database volume, settings, and passwords retained |
 | `make s3-acceptance` | Verify S3 API backup and WAL through an isolated local TLS fixture | JSON report and cached images retained; fixture containers, networks, volume, and temporary secrets removed |
+| `BACKUP_LABEL=... RECOVERY_TIME=... make s3-restore-time` | Recover an explicit S3 backup and archived WAL to an inclusive UTC target | Restored database in its own volume; archiving disabled, no local repository mount |
+| `make s3-restore-psql` | Open the S3-restored database's SQL shell | Recovered database stays running after `\q` |
+| `make s3-restore-down` | Remove the S3-restored container | Restored volume and S3 objects retained |
+| `make s3-restore-up` | Resume the S3-restored database | No new restore or database initialization |
 | `BACKUP_LABEL=... make restore` | Restore the selected full backup into an empty target and wait for recovery to finish | Restored database running; source data and repository unchanged |
 | `make restore-psql` | Open a SQL session in the restored database | Restored database stays running after `\q` |
 | `make restore-down` | Stop and remove only the restored container | All volumes retained; source container unaffected |
@@ -409,8 +418,9 @@ If cleanup fails, the command reports the test project and retained secret path.
 | Point-in-time recovery | Released in `v0.3.0` |
 | Verified recovery duration and acknowledged-loss measurement | Released in `v0.4.0` |
 | Backup freshness and active WAL delivery health | Released in `v0.5.0` |
-| AWS S3 full backup and WAL storage | Verified locally; PR validation pending |
-| Recovery from S3 on a clean replacement host | Planned |
+| AWS S3 full backup and WAL storage | Merged in PR #10 |
+| EC2 workload identity and reader/writer profiles | Merged in PR #11 |
+| Recovery from S3 on a clean replacement host | Verified on EC2 |
 
 See the [delivery roadmap](docs/roadmap.md) for milestone scope,
 [contribution guidelines](CONTRIBUTING.md) for the PR workflow, and

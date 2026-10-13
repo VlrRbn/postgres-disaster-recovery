@@ -4,14 +4,14 @@ set -euo pipefail
 root=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
 work=$(mktemp -d)
 export PGDR_REPOSITORY=s3
+export PGDR_S3_FIXTURE=1
 PGDR_PROJECT="postgres-dr-s3-test-$(date +%s)-$$"
 export PGDR_PROJECT
 export PGDR_S3_DIR="$work"
 export PGDR_SECRET_FILE="$work/postgres_password"
 restore_name="$PGDR_PROJECT-retention-restore"
-restore_volume="${PGDR_PROJECT}_retention_restore"
-compose=(docker compose --project-name "$PGDR_PROJECT" --project-directory "$root"
-    --file "$root/compose.s3.yaml" --file "$root/compose.s3-test.yaml")
+restore_volume="${PGDR_PROJECT}_pgrestore"
+compose=(bash "$root/scripts/compose.sh")
 
 cleanup() {
     local result=$?
@@ -24,7 +24,7 @@ cleanup() {
     if docker container inspect "$restore_name" >/dev/null 2>&1; then
         docker rm --force "$restore_name" || cleanup_failed=1
     fi
-    "${compose[@]}" down --volumes --remove-orphans || cleanup_failed=1
+    "${compose[@]}" --profile restore down --volumes --remove-orphans || cleanup_failed=1
     if docker volume inspect "$restore_volume" >/dev/null 2>&1; then
         docker volume rm "$restore_volume" || cleanup_failed=1
     fi
@@ -45,7 +45,7 @@ sql() {
         psql -X -v ON_ERROR_STOP=1 -U postgres -d orders "$@"
 }
 restore_sql() {
-    docker exec --user postgres "$restore_name" \
+    "${compose[@]}" exec -T --user postgres restore \
         psql -X -v ON_ERROR_STOP=1 -U postgres -d orders "$@"
 }
 
@@ -178,25 +178,29 @@ PY
 verify_restore_after_retention() {
     step 4 "Restore the oldest retained backup and replay WAL"
     # Reuse the existing restore implementation in a fresh volume, with the source stopped.
-    image=$(docker inspect --format '{{.Image}}' "$primary_id")
     "${compose[@]}" stop postgres
-    restore_runtime=(docker run --network "${PGDR_PROJECT}_repository" --no-healthcheck
-        --volume "$restore_volume:/var/lib/postgresql/data"
-        --volume "$work/pgbackrest.conf:/run/secrets/pgbackrest_s3:ro"
-        --volume "$work/server.crt:/opt/s3-ca.crt:ro"
-        --volume "$root/scripts/s3-entrypoint.sh:/opt/s3-entrypoint.sh:ro"
-        --volume "$root/scripts/restore-volume.sh:/opt/restore-volume.sh:ro"
-        --entrypoint bash)
-    "${restore_runtime[@]}" --rm "$image" /opt/s3-entrypoint.sh \
-        gosu postgres bash /opt/restore-volume.sh "$retained_label" "$recovery_time"
-    "${restore_runtime[@]}" --detach --name "$restore_name" "$image" /opt/s3-entrypoint.sh \
-        gosu postgres postgres -D /var/lib/postgresql/data \
-        -c archive_mode=off -c archive_command= -c listen_addresses=
+    BACKUP_LABEL="$retained_label" RECOVERY_TIME="$recovery_time" bash "$root/scripts/restore.sh" time
+    restore_name=$("${compose[@]}" ps --quiet restore)
     wait_for_recovery
     restore_sql -c 'COPY (SELECT id, reference, amount_cents, created_at FROM orders ORDER BY id) TO STDOUT WITH CSV;' >"$work/retention-recovered.csv"
     cmp "$work/retention-expected.csv" "$work/retention-recovered.csv"
     [[ $(restore_sql -Atc 'SHOW archive_mode;') == off ]]
     restore_sql -c "INSERT INTO orders (reference, amount_cents) VALUES ('s3-retention-restored-write', 500);"
+    [[ $(restore_sql -Atc "SELECT count(*) FROM orders WHERE reference = 's3-retention-restored-write';") == 1 ]]
+    if BACKUP_LABEL="$retained_label" bash "$root/scripts/restore.sh" restore >"$work/occupied-container.log" 2>&1; then
+        echo 'An existing S3 restore container unexpectedly accepted another restore.' >&2
+        exit 1
+    fi
+    grep -F 'Restore container already exists' "$work/occupied-container.log"
+    "${compose[@]}" stop restore
+    "${compose[@]}" rm --force restore
+    if BACKUP_LABEL="$retained_label" bash "$root/scripts/restore.sh" restore >"$work/occupied-volume.log" 2>&1; then
+        echo 'A nonempty S3 restore volume unexpectedly accepted another restore.' >&2
+        exit 1
+    fi
+    grep -F 'Restore target is not empty' "$work/occupied-volume.log"
+    bash "$root/scripts/restore.sh" start
+    restore_name=$("${compose[@]}" ps --quiet restore)
     [[ $(restore_sql -Atc "SELECT count(*) FROM orders WHERE reference = 's3-retention-restored-write';") == 1 ]]
     [[ -z $("${compose[@]}" ps --status running --quiet postgres) ]]
     docker inspect "$restore_name" >"$work/retention-restore-container.json"
@@ -257,7 +261,7 @@ assert any(row[1] == 's3-retention-wal' for row in recovered)
 assert not any(row[1] == 's3-retention-third' for row in recovered)
 restore = json.loads((work / 'retention-restore-container.json').read_text())[0]
 data = next(mount for mount in restore['Mounts'] if mount['Destination'] == '/var/lib/postgresql/data')
-assert data['Name'] == sys.argv[3] + '_retention_restore'
+assert data['Name'] == sys.argv[3] + '_pgrestore'
 assert all(mount.get('Name') != sys.argv[3] + '_pgdata' for mount in restore['Mounts'])
 assert not restore['HostConfig']['PortBindings']
 output.parent.mkdir(parents=True, exist_ok=True)

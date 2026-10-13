@@ -167,6 +167,14 @@ Terraform protects the bucket from destroy and disables forceful object deletion
 separate decision about all object versions, deletion protection, and state;
 normal shutdown preserves backups.
 
+## S3 Recovery
+
+S3 recovery reuses the existing restore implementation in a separate empty
+`pgrestore` volume. It mounts no source data or local repository, keeps archiving
+disabled, and obtains only the S3 access needed by the selected authentication mode.
+See [clean-host S3 recovery](ec2-s3-recovery.md) for UTC targets, SQL access,
+restart, safety checks, and temporary EC2 provisioning and cleanup.
+
 ## Acceptance And Boundaries
 
 ```bash
@@ -189,20 +197,23 @@ and removes its own containers, networks, volumes, temporary keys, and password.
 The same script enables fixture bucket versioning, creates three distinct full
 backups, and requires exactly the two newest copies in current metadata. Current
 objects for the expired copy disappear while its noncurrent versions remain.
-It then stops the source and reuses `restore-volume.sh` and `s3-entrypoint.sh` to
-recover the oldest retained copy into a fresh volume. Recovery targets a time
-after a post-backup insert and before the third backup's insert, proving that
-required WAL survived expiration. All three expected rows must match every field,
-the later row must be absent, and a recovered-side write must succeed.
+It then stops the source and uses the operational `restore.sh` workflow and S3
+Compose service to recover the oldest retained copy into a fresh volume.
+Recovery targets a time after a post-backup insert and before the third backup's
+insert, proving that required WAL survived expiration. All three expected rows must
+match every field, the later row must be absent, and a recovered-side write must
+survive restart. Repeated restore attempts must reject an existing container or
+nonempty volume.
 
-This is a retention/recovery extension of `make s3-acceptance`, not a separate
-script or operator restore command. The recovered fixture shares the Docker host
+The existing `make s3-acceptance` exercises the same implementation used by
+`make s3-restore-time`. The recovered fixture shares the Docker host
 and uses synthetic credentials; it does not establish replacement-host recovery.
 
-AWS acceptance is recorded separately in [S3 evidence](../evidence/s3-repository-acceptance-20261007.md).
+The original AWS backup acceptance is recorded in [S3 evidence](../evidence/s3-repository-acceptance-20261007.md).
 It establishes real S3 upload, IAM prefix restrictions, verified TLS, and healthy
-repository metadata. This first delivery does not yet establish recovery on a
-clean replacement host; that is the next PR and the milestone's recovery contract.
+repository metadata. The [clean-host recovery evidence](../evidence/ec2-s3-recovery-acceptance-20261013.md)
+records a successful EC2 restore using the reader role, exact data comparison,
+post-backup WAL, and a persistent recovered-side write.
 
 ## References
 

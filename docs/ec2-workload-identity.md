@@ -164,6 +164,9 @@ Policy Simulator. Results are recorded in
 [identity evidence](../evidence/ec2-identity-validation-20261013.md).
 
 These checks do not establish a live EC2/IMDS backup or clean-host recovery.
+See [clean-host S3 recovery](ec2-s3-recovery.md) for the temporary host and commands.
+The completed live deployment is recorded separately in
+[clean-host recovery evidence](../evidence/ec2-s3-recovery-acceptance-20261013.md).
 
 ## References
 

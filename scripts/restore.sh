@@ -22,7 +22,7 @@ prepare_restore_arguments() {
     local mode=$1
     label=${BACKUP_LABEL:-}
     if [[ ! "$label" =~ ^[0-9]{8}-[0-9]{6}F$ ]]; then
-        echo 'Set BACKUP_LABEL to an explicit full backup label from make backup-info.' >&2
+        echo 'Set BACKUP_LABEL to an explicit full backup label from make backup-info (local) or make s3-info (S3).' >&2
         exit 2
     fi
     restore_args=("$label")
@@ -43,11 +43,18 @@ prepare_restore_arguments() {
 restore_from_backup() {
     prepare_restore_arguments "$1"
     if [[ -n $("${compose[@]}" ps --all --quiet restore) ]]; then
-        echo 'Restore container already exists. Use make restore-up to resume or make restore-down to remove it.' >&2
+        local prefix=''
+        [[ ${PGDR_REPOSITORY:-local} != s3 ]] || prefix='s3-'
+        echo "Restore container already exists. Use make ${prefix}restore-up to resume or make ${prefix}restore-down to remove it." >&2
         exit 1
     fi
     "${compose[@]}" build restore
-    "${compose[@]}" run --rm --no-deps --entrypoint bash restore /opt/restore-volume.sh "${restore_args[@]}"
+    if [[ ${PGDR_REPOSITORY:-local} == s3 ]]; then
+        "${compose[@]}" run --rm --no-deps --entrypoint bash restore \
+            /opt/s3-entrypoint.sh gosu postgres bash /opt/restore-volume.sh "${restore_args[@]}"
+    else
+        "${compose[@]}" run --rm --no-deps --entrypoint bash restore /opt/restore-volume.sh "${restore_args[@]}"
+    fi
     start_restore
 }
 

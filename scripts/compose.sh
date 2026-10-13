@@ -26,4 +26,13 @@ if [[ ! "$project" =~ ^postgres-dr-[a-z0-9-]+$ ]]; then
     echo 'PGDR_PROJECT must start with postgres-dr- and use lowercase letters, digits or hyphens.' >&2
     exit 1
 fi
-exec docker compose --project-name "$project" --project-directory "$root" --file "$config" "$@"
+configs=(--file "$config")
+# The disposable API acceptance uses the same operational commands with its fixture overlay.
+if [[ ${PGDR_S3_FIXTURE:-0} == 1 ]]; then
+    if [[ ${PGDR_REPOSITORY:-local} != s3 ]]; then
+        echo 'The S3 API fixture requires PGDR_REPOSITORY=s3.' >&2
+        exit 2
+    fi
+    configs+=(--file "$root/compose.s3-test.yaml")
+fi
+exec docker compose --project-name "$project" --project-directory "$root" "${configs[@]}" "$@"

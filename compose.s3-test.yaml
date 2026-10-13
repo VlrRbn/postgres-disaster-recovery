@@ -32,6 +32,13 @@ services:
     volumes:
       - ${PGDR_S3_DIR}/server.crt:/opt/s3-ca.crt:ro
 
+  restore:
+    network_mode: !reset null
+    networks:
+      - repository
+    volumes:
+      - ${PGDR_S3_DIR}/server.crt:/opt/s3-ca.crt:ro
+
 networks:
   repository:
     internal: true
