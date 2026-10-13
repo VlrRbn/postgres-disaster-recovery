@@ -10,7 +10,7 @@ names. Each release marks a completed and verified milestone.
 | Point-In-Time Recovery | `v0.3.0` | Released |
 | Recovery Measurement | `v0.4.0` | Released |
 | Backup Health | `v0.5.0` | Released |
-| External Backup And Clean-Host Recovery | `v0.6.0` | S3 repository verified locally; replacement-host recovery pending |
+| External Backup And Clean-Host Recovery | `v0.6.0` | S3 and EC2 recovery verified |
 
 ## Physical Backup Delivery Steps
 
@@ -53,13 +53,13 @@ error counters. See [backup health](backup-health.md).
 | Step | Merge Criteria | State |
 | --- | --- | --- |
 | AWS S3 Repository And WAL | Dedicated private bucket, prefix-scoped writer role, verified TLS, full backup and WAL, retention rollover with recovery, and operational docs | Merged in PR #10 |
-| EC2 Workload Identity | Key-free instance-mode configuration and separate prefix-scoped writer/reader instance profiles | Profiles provisioned; local checks and IAM simulation passed; PR pending |
-| Clean-Host Recovery | Recover using only S3 objects on a fresh host/runtime, use a separate reader identity, compare expected data, and confirm new writes | Planned |
+| EC2 Workload Identity | Key-free instance-mode configuration and separate prefix-scoped writer/reader instance profiles | Merged in PR #11 |
+| Clean-Host Recovery | Recover using only S3 objects on a fresh host/runtime, use a separate reader identity, compare expected data, and confirm new writes | Local/API checks and live EC2 recovery passed |
 
 The first PR creates and validates external storage and its backup/WAL path.
 The identity preparation step is [EC2 workload identity](ec2-workload-identity.md).
-The following deployment exercises replacement-host recovery. Release notes and `v0.6.0`
-follow the completed recovery contract. See [S3 operations](s3-repository.md).
+The following [deployment](ec2-s3-recovery.md) exercises replacement-host recovery.
+Release notes and `v0.6.0` follow the completed recovery contract. See [S3 operations](s3-repository.md).
 
 ## Acceptance Contracts
 

@@ -1,5 +1,6 @@
 {
   "yaml.customTags": [
-    "!override sequence"
+    "!override sequence",
+    "!reset scalar"
   ]
 }

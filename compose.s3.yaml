@@ -13,6 +13,33 @@ services:
     networks:
       - repository
 
+  restore:
+    extends:
+      file: compose.yaml
+      service: restore
+    user: root
+    entrypoint: [bash, /opt/s3-entrypoint.sh]
+    command:
+      - gosu
+      - postgres
+      - postgres
+      - -D
+      - /var/lib/postgresql/data
+      - -c
+      - archive_mode=off
+      - -c
+      - archive_command=
+      - -c
+      - listen_addresses=
+    # Outbound S3/IMDS access; SQL stays on the container's Unix socket.
+    network_mode: bridge
+    volumes: !override
+      - pgrestore:/var/lib/postgresql/data
+      - ./scripts/restore-volume.sh:/opt/restore-volume.sh:ro
+      - ./scripts/s3-entrypoint.sh:/opt/s3-entrypoint.sh:ro
+    secrets:
+      - pgbackrest_s3
+
 secrets:
   postgres_password:
     file: ${PGDR_SECRET_FILE:-./.local/s3/postgres_password}
@@ -21,6 +48,7 @@ secrets:
 
 volumes:
   pgdata:
+  pgrestore:
 
 networks:
   database:

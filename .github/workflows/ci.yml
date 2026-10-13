@@ -53,8 +53,10 @@ jobs:
           persist-credentials: false
       - name: Validate Terraform without AWS credentials
         run: |
-          docker run --rm --user "$(id -u):$(id -g)" \
-            --volume "$PWD/terraform/s3-repository:/work" --workdir /work \
-            --entrypoint /bin/sh \
-            hashicorp/terraform:1.14.4@sha256:5dbdc45b411f4dd56c5b576b0ded0554859796fee2eaee9edd58dddddeac1acb \
-            -ec 'terraform fmt -check && terraform init -backend=false -input=false -lockfile=readonly && terraform validate'
+          for configuration in s3-repository ec2-recovery; do
+            docker run --rm --user "$(id -u):$(id -g)" \
+              --volume "$PWD/terraform/$configuration:/work" --workdir /work \
+              --entrypoint /bin/sh \
+              hashicorp/terraform:1.14.4@sha256:5dbdc45b411f4dd56c5b576b0ded0554859796fee2eaee9edd58dddddeac1acb \
+              -ec 'terraform fmt -check && terraform init -backend=false -input=false -lockfile=readonly && terraform validate'
+          done
