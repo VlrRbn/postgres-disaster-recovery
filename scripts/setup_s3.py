@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Prepare an ignored pgBackRest S3 secret from an AWS CLI credential profile."""
+"""Prepare pgBackRest S3 settings for local AWS profiles or an EC2 instance role."""
 
 import argparse
 import configparser
@@ -14,6 +14,11 @@ from pathlib import Path
 
 
 def validate_settings(settings):
+    auth_mode = settings.get('auth_mode', 'profile')
+    if auth_mode not in ('profile', 'instance'):
+        raise ValueError('S3 auth mode must be profile or instance')
+    if auth_mode == 'instance' and (settings.get('profile') or settings.get('role_arn')):
+        raise ValueError('Instance mode uses the attached EC2 role; profile and role_arn must be unset')
     bucket = settings['bucket']
     if (not re.fullmatch(r'[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]', bucket)
             or '..' in bucket or re.fullmatch(r'[0-9.]+', bucket)):
@@ -25,7 +30,8 @@ def validate_settings(settings):
         raise ValueError('Prefix must start with postgres-dr/ and use lowercase letters, digits, slashes or hyphens')
     if settings['prefix'].endswith('/') or '//' in settings['prefix']:
         raise ValueError('Prefix must not end with / or contain //')
-    if not settings['profile'] or any(char in settings['profile'] for char in '\r\n'):
+    if auth_mode == 'profile' and (not settings.get('profile')
+                                   or any(char in settings['profile'] for char in '\r\n')):
         raise ValueError('An AWS CLI profile name is required')
     if settings.get('role_arn') and not re.fullmatch(
             r'arn:aws:iam::[0-9]{12}:role/[A-Za-z0-9+=,.@_/-]+', settings['role_arn']):
@@ -33,8 +39,7 @@ def validate_settings(settings):
     return settings
 
 
-def build_config(settings, credentials, *, now=None):
-    validate_settings(settings)
+def validate_credentials(credentials, now):
     for name in ('AccessKeyId', 'SecretAccessKey'):
         value = credentials.get(name)
         if not isinstance(value, str) or not value or any(char.isspace() for char in value):
@@ -48,18 +53,35 @@ def build_config(settings, credentials, *, now=None):
         if expires.utcoffset() is None or expires <= (now or datetime.now(timezone.utc)):
             raise ValueError('AWS credentials have expired or have no timezone; refresh the profile')
 
+
+def build_config(settings, credentials=None, *, now=None):
+    validate_settings(settings)
+    auth_mode = settings.get('auth_mode', 'profile')
+    if auth_mode == 'profile':
+        if credentials is None:
+            raise ValueError('Profile mode requires temporary AWS credentials')
+        validate_credentials(credentials, now)
+    elif credentials is not None:
+        raise ValueError('Instance mode must not receive explicit AWS credentials')
+
     config = configparser.ConfigParser(interpolation=None)
     base = Path(__file__).resolve().parent.parent / 'pgbackrest/pgbackrest.conf'
     config.read_string(base.read_text())
+    # Rebuild authentication fields; never carry old keys into an instance config.
+    for option in ('repo1-s3-key', 'repo1-s3-key-secret', 'repo1-s3-token'):
+        config.remove_option('global', option)
     config['global'].update({
         'repo1-type': 's3', 'repo1-path': f"/{settings['prefix']}", 'repo1-bundle': 'y',
         'repo1-s3-bucket': settings['bucket'], 'repo1-s3-region': settings['region'],
         'repo1-s3-endpoint': f"s3.{settings['region']}.amazonaws.com",
-        'repo1-s3-uri-style': 'path', 'repo1-s3-key-type': 'shared', 'repo1-storage-verify-tls': 'y',
-        'repo1-s3-key': credentials['AccessKeyId'], 'repo1-s3-key-secret': credentials['SecretAccessKey'],
+        'repo1-s3-uri-style': 'path', 'repo1-storage-verify-tls': 'y',
+        'repo1-s3-key-type': 'auto' if auth_mode == 'instance' else 'shared',
     })
-    if token:
-        config['global']['repo1-s3-token'] = token
+    if credentials is not None:
+        config['global']['repo1-s3-key'] = credentials['AccessKeyId']
+        config['global']['repo1-s3-key-secret'] = credentials['SecretAccessKey']
+        if credentials.get('SessionToken'):
+            config['global']['repo1-s3-token'] = credentials['SessionToken']
     output = io.StringIO()
     config.write(output, space_around_delimiters=False)
     return output.getvalue()
@@ -96,14 +118,27 @@ def parse_settings(directory):
     settings_path = directory / 'settings.json'
     saved = json.loads(settings_path.read_text()) if settings_path.exists() else {}
     parser = argparse.ArgumentParser(description=__doc__)
-    for name in ('bucket', 'region', 'prefix', 'profile', 'role_arn'):
+    for name in ('bucket', 'region', 'prefix', 'profile', 'role_arn', 'auth_mode'):
+        # Keep explicit profile inputs separate from saved values during a mode switch.
+        saved_default = argparse.SUPPRESS if name in ('profile', 'role_arn') else saved.get(name)
         parser.add_argument(f'--{name.replace("_", "-")}',
-                            default=os.environ.get(f'PGDR_S3_{name.upper()}', saved.get(name)))
+                            default=os.environ.get(f'PGDR_S3_{name.upper()}', saved_default))
     args = parser.parse_args()
     settings = vars(args)
+    settings['auth_mode'] = settings['auth_mode'] or 'profile'
     settings['prefix'] = settings['prefix'] or 'postgres-dr/orders'
-    if any(settings[name] is None for name in ('bucket', 'region', 'profile')):
-        parser.error('Set PGDR_S3_BUCKET, PGDR_S3_REGION and PGDR_S3_PROFILE on first setup')
+    for name in ('profile', 'role_arn'):
+        if settings['auth_mode'] == 'instance':
+            if name in settings:
+                parser.error(f'Instance mode uses the attached EC2 role; unset PGDR_S3_{name.upper()} '
+                             f'and omit --{name.replace("_", "-")}')
+            settings[name] = None
+        else:
+            settings.setdefault(name, saved.get(name))
+    if any(settings[name] is None for name in ('bucket', 'region')):
+        parser.error('Set PGDR_S3_BUCKET and PGDR_S3_REGION on first setup')
+    if settings['auth_mode'] == 'profile' and settings['profile'] is None:
+        parser.error('Profile mode requires PGDR_S3_PROFILE')
     return parser, settings, saved
 
 
@@ -136,11 +171,15 @@ def main():
         validate_settings(settings)
         if saved and any(saved[name] != settings[name] for name in ('bucket', 'region', 'prefix')):
             raise ValueError('Existing repository identity differs; use a separate PGDR_S3_DIR and Compose project')
-        credentials = fetch_credentials(settings)
+        credentials = fetch_credentials(settings) if settings['auth_mode'] == 'profile' else None
         save_configuration(directory, settings, credentials)
     except (ValueError, KeyError, OSError, subprocess.TimeoutExpired) as error:
         parser.exit(1, f'S3 setup failed: {error}\n')
-    print(f'S3 credentials prepared privately; bucket {settings["bucket"]}, prefix {settings["prefix"]}.')
+    if settings['auth_mode'] == 'instance':
+        print('S3 instance authentication configured; pgBackRest obtains temporary credentials from EC2 IMDS.')
+    else:
+        print('S3 profile credentials prepared privately.')
+    print(f'Bucket: {settings["bucket"]}; prefix: {settings["prefix"]}.')
     print(f'Prefix-scoped writer policy: {directory / "writer-policy.json"}')
 
 

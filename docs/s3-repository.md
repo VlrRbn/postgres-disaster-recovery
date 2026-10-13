@@ -30,6 +30,12 @@ policy. Obtain the underlying role ARN with `aws iam get-role` through the
 bootstrap profile, or use an existing IAM principal allowed to provision resources.
 
 ```bash
+aws iam get-role \
+  --profile aws-sso-admin \
+  --role-name AWSReservedSSO_AdministratorAccess_1234567890123456 \
+  --query 'Role.Arn' \
+  --output text
+
 export AWS_PROFILE=your-bootstrap-profile
 terraform -chdir=terraform/s3-repository init
 terraform -chdir=terraform/s3-repository plan \
@@ -92,6 +98,13 @@ no full backup on first startup. PostgreSQL publishes no host port and uses an
 additional bridge network for outbound AWS access.
 
 ## Credentials And Refresh
+
+For an EC2 runtime, use `PGDR_S3_AUTH_MODE=instance` and a dedicated instance
+profile. The generated config uses `repo1-s3-key-type=auto` and contains no AWS
+keys or session token. See [EC2 workload identity](ec2-workload-identity.md) for
+writer/reader permissions, metadata options, and configuration preparation.
+The following snapshot workflow remains the default `profile` mode for local
+development.
 
 `make s3-setup` prepares `.local/s3/pgbackrest.conf`, `settings.json`,
 `writer-policy.json`, and the database password. With `PGDR_S3_ROLE_ARN` set,
@@ -186,7 +199,7 @@ This is a retention/recovery extension of `make s3-acceptance`, not a separate
 script or operator restore command. The recovered fixture shares the Docker host
 and uses synthetic credentials; it does not establish replacement-host recovery.
 
-AWS acceptance is recorded separately in [S3 evidence](../evidence/s3-repository-acceptance-20261005.md).
+AWS acceptance is recorded separately in [S3 evidence](../evidence/s3-repository-acceptance-20261007.md).
 It establishes real S3 upload, IAM prefix restrictions, verified TLS, and healthy
 repository metadata. This first delivery does not yet establish recovery on a
 clean replacement host; that is the next PR and the milestone's recovery contract.
