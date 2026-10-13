@@ -144,6 +144,11 @@ bucket and prefix-scoped IAM writer role. `make s3-up`, `make s3-backup`, and
 verified HTTPS. `make s3-down` retains the S3 objects and the separate local
 database volume. Clean-host recovery is the next delivery step.
 
+The prepared [EC2 workload identity](docs/ec2-workload-identity.md) mode uses
+`PGDR_S3_AUTH_MODE=instance` and role credentials from IMDS instead of keys in
+the config. Separate writer/reader instance profiles are defined in Terraform;
+live EC2 deployment and replacement-host recovery remain pending.
+
 ## Security Defaults
 
 - official PostgreSQL base image pinned to an immutable digest;

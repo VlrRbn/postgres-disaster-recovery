@@ -38,3 +38,13 @@ variable "writer_role_name" {
   type        = string
   default     = "postgres-dr-s3-writer"
 }
+
+variable "ec2_role_name_prefix" {
+  description = "Names the separate EC2 writer and reader roles and instance profiles."
+  type        = string
+  default     = "postgres-dr-ec2"
+  validation {
+    condition     = can(regex("^[A-Za-z0-9+=,.@_-]{1,50}$", var.ec2_role_name_prefix))
+    error_message = "Use a valid IAM name prefix of at most 50 characters."
+  }
+}

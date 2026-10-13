@@ -52,11 +52,13 @@ error counters. See [backup health](backup-health.md).
 
 | Step | Merge Criteria | State |
 | --- | --- | --- |
-| AWS S3 Repository And WAL | Dedicated private bucket, prefix-scoped writer role, verified TLS, full backup and WAL, retention rollover with recovery, and operational docs | Verified locally; PR pending |
+| AWS S3 Repository And WAL | Dedicated private bucket, prefix-scoped writer role, verified TLS, full backup and WAL, retention rollover with recovery, and operational docs | Merged in PR #10 |
+| EC2 Workload Identity | Key-free instance-mode configuration and separate prefix-scoped writer/reader instance profiles | Profiles provisioned; local checks and IAM simulation passed; PR pending |
 | Clean-Host Recovery | Recover using only S3 objects on a fresh host/runtime, use a separate reader identity, compare expected data, and confirm new writes | Planned |
 
 The first PR creates and validates external storage and its backup/WAL path.
-The next PR exercises replacement-host recovery. Release notes and `v0.6.0`
+The identity preparation step is [EC2 workload identity](ec2-workload-identity.md).
+The following deployment exercises replacement-host recovery. Release notes and `v0.6.0`
 follow the completed recovery contract. See [S3 operations](s3-repository.md).
 
 ## Acceptance Contracts
