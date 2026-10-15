@@ -2,6 +2,17 @@
 set -euo pipefail
 
 root=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
+if [[ ${1:-} == --replication ]]; then
+    shift
+    project=${PGDR_REPLICATION_PROJECT:-postgres-dr-replication}
+    if [[ ! "$project" =~ ^postgres-dr-replication($|-[a-z0-9-]+$) ]]; then
+        echo 'Replication requires a postgres-dr-replication or postgres-dr-replication-* project.' >&2
+        exit 2
+    fi
+    export PGDR_REPLICATION_DIR=${PGDR_REPLICATION_DIR:-$root/.local/replication}
+    exec docker compose --project-name "$project" --project-directory "$root" \
+        --file "$root/compose.replication.yaml" "$@"
+fi
 # Select the configuration and defaults for one isolated runtime.
 case "${PGDR_REPOSITORY:-local}" in
     local)

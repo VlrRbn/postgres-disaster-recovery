@@ -61,6 +61,14 @@ The identity preparation step is [EC2 workload identity](ec2-workload-identity.m
 The following [deployment](ec2-s3-recovery.md) exercises replacement-host recovery.
 Release notes and `v0.6.0` follow the completed recovery contract. See [S3 operations](s3-repository.md).
 
+## Streaming Replication Delivery
+
+The next focused PR adds a separate local primary/standby runtime, dedicated
+replication credentials, asynchronous WAL streaming, a physical slot with bounded
+retention, and operational commands. Acceptance compares exact records, rejects
+standby writes, exercises outages on both sides, and verifies retained volumes
+after container recreation. See [streaming replication](streaming-replication.md).
+
 ## Acceptance Contracts
 
 - **Physical Backup And Restore:** create a pgBackRest backup, restore into
@@ -81,5 +89,5 @@ Release notes and `v0.6.0` follow the completed recovery contract. See [S3 opera
 - Local reproducibility remains supported.
 - Claim backup recovery only after restoration has been exercised.
 
-Retention rollover, alerting, replication, and failover are possible later
+Retention rollover, alerting, and failover are possible later
 capabilities. Their scope and release targets are not yet defined.

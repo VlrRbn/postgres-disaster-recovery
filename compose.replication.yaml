@@ -1,0 +1,72 @@
+services:
+  primary:
+    build: &postgres-build
+      context: ./docker/postgres
+    entrypoint: [bash, /opt/replication.sh, start-primary]
+    command: [postgres, -c, wal_level=replica, -c, max_wal_senders=4,
+              -c, max_replication_slots=1, -c, max_slot_wal_keep_size=256MB,
+              -c, wal_keep_size=64MB, -c, archive_mode=off]
+    environment:
+      POSTGRES_DB: orders
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD_FILE: /run/secrets/postgres_password
+      POSTGRES_INITDB_ARGS: --data-checksums
+    secrets: [postgres_password, replication_password]
+    volumes:
+      - primary_data:/var/lib/postgresql/data
+      - ./scripts/replication.sh:/opt/replication.sh:ro
+      - ./scripts/replication.sh:/docker-entrypoint-initdb.d/002-replication.sh:ro
+      - ./sql/001-orders.sql:/docker-entrypoint-initdb.d/001-orders.sql:ro
+    healthcheck:
+      test: [CMD-SHELL, 'pg_isready -h 127.0.0.1 -U postgres -d orders']
+      interval: 2s
+      timeout: 3s
+      retries: 60
+      start_period: 10s
+    stop_grace_period: 30s
+    shm_size: 128mb
+    mem_limit: 512m
+    cpus: 1.0
+    networks: [replication]
+
+  standby:
+    build: *postgres-build
+    entrypoint: [bash, /opt/replication.sh, start-standby]
+    environment:
+      PGDATA: /var/lib/postgresql/data
+    secrets: [replication_password]
+    volumes:
+      - standby_data:/var/lib/postgresql/data
+      - ./scripts/replication.sh:/opt/replication.sh:ro
+    depends_on:
+      primary:
+        condition: service_healthy
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - >-
+          test "$$(gosu postgres psql -X -U postgres -d orders -Atc
+          'SELECT pg_is_in_recovery()')" = t
+      interval: 2s
+      timeout: 3s
+      retries: 60
+      start_period: 10s
+    stop_grace_period: 30s
+    shm_size: 128mb
+    mem_limit: 512m
+    cpus: 1.0
+    networks: [replication]
+
+secrets:
+  postgres_password:
+    file: ${PGDR_REPLICATION_DIR:-./.local/replication}/postgres_password
+  replication_password:
+    file: ${PGDR_REPLICATION_DIR:-./.local/replication}/replication_password
+
+volumes:
+  primary_data:
+  standby_data:
+
+networks:
+  replication:
+    internal: true
