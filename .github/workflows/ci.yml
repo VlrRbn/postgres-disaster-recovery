@@ -42,6 +42,8 @@ jobs:
         run: cat .local/reports/*-s3.json
       - name: Verify optional pgAdmin access and persistence
         run: make pgadmin-acceptance
+      - name: Verify streaming replication and outage recovery
+        run: make replication-acceptance
 
   repository-infrastructure:
     name: S3 infrastructure validation

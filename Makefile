@@ -1,4 +1,4 @@
-.PHONY: setup check image up psql down acceptance backup-init backup-check backup backup-info backup-verify backup-health backup-health-acceptance restore restore-time restore-latest restore-up restore-psql restore-down pgadmin-up pgadmin-down pgadmin-acceptance rpo-acceptance s3-setup s3-up s3-down s3-psql s3-backup s3-info s3-check s3-health s3-acceptance s3-restore s3-restore-time s3-restore-latest s3-restore-up s3-restore-psql s3-restore-down
+.PHONY: setup check image up psql down acceptance backup-init backup-check backup backup-info backup-verify backup-health backup-health-acceptance restore restore-time restore-latest restore-up restore-psql restore-down pgadmin-up pgadmin-down pgadmin-acceptance rpo-acceptance s3-setup s3-up s3-down s3-psql s3-backup s3-info s3-check s3-health s3-acceptance s3-restore s3-restore-time s3-restore-latest s3-restore-up s3-restore-psql s3-restore-down replication-up replication-down replication-psql standby-psql replication-status replication-acceptance
 
 setup:
 	bash scripts/setup.sh
@@ -10,7 +10,26 @@ check:
 	bash scripts/compose.sh config --quiet
 	PGDR_REPOSITORY=s3 bash scripts/compose.sh config --quiet
 	PGDR_REPOSITORY=s3 PGDR_S3_FIXTURE=1 PGDR_S3_DIR=.local/s3 bash scripts/compose.sh config --quiet
+	bash scripts/compose.sh --replication config --quiet
 	git diff --check
+
+replication-up:
+	bash scripts/replication.sh up
+
+replication-down:
+	bash scripts/compose.sh --replication down
+
+replication-psql:
+	bash scripts/compose.sh --replication exec --user postgres primary psql -X -U postgres -d orders
+
+standby-psql:
+	bash scripts/compose.sh --replication exec --user postgres standby psql -X -U postgres -d orders
+
+replication-status:
+	bash scripts/replication.sh status
+
+replication-acceptance:
+	bash scripts/replication-acceptance.sh
 
 image:
 	bash scripts/compose.sh build postgres

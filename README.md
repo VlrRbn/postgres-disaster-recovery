@@ -154,6 +154,22 @@ restore commands. A live EC2 run recovered nine exact rows with the source stopp
 used the reader role, and confirmed new-write persistence. See
 [recovery evidence](evidence/ec2-s3-recovery-acceptance-20261013.md).
 
+## Local Streaming Replication
+
+`make replication-up` starts a separate primary and read-only standby. The
+standby is seeded with `pg_basebackup` and receives asynchronous WAL through
+a dedicated SCRAM-authenticated replication role and a physical slot with
+bounded WAL retention. Existing backup and S3 runtimes remain separate.
+
+Use `make replication-psql`, `make standby-psql`, and `make replication-status`
+to write, read, and inspect replication. `make replication-down` preserves both
+database volumes. See [streaming replication](docs/streaming-replication.md)
+for startup, outage exercises, passwords, and recovery limits.
+
+`make replication-acceptance` verifies exact data transfer, rejected standby
+writes, reconnection after either server stops, and persistence across container
+recreation. This local runtime has no promotion or automatic failover.
+
 ## Security Defaults
 
 - official PostgreSQL base image pinned to an immutable digest;
@@ -204,6 +220,11 @@ default Compose project `postgres-dr-local`.
 | Command | What It Does | What Remains Afterwards |
 | --- | --- | --- |
 | `make check` | Check shell scripts, Compose configuration, and diff formatting | No database is started |
+| `make replication-up` | Generate separate passwords, start a primary, seed or resume its standby | Two databases running in a separate Compose project |
+| `make replication-status` | Show sender, receiver, slot and replay state | Databases stay running |
+| `make replication-psql` / `make standby-psql` | Open SQL on the replication primary or standby | Databases stay running after `\q` |
+| `make replication-down` | Remove replication containers and network | Both database volumes and passwords retained |
+| `make replication-acceptance` | Verify streaming, read-only standby, outages and persistence | Disposable project removed; images and build cache retained |
 | `make image` | Build the PostgreSQL image with pgBackRest | Local image and build cache; no database is started |
 | `make up` | Generate or reuse the password, build and start PostgreSQL, initialize the repository, and check WAL archiving | Database running with initialized backup storage; no backup yet on first startup |
 | `make psql` | Open a SQL session in the running database | Database stays running when the session closes |

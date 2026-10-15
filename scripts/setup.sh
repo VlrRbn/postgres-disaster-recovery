@@ -12,7 +12,8 @@ select_secret_file() {
             fi
             ;;
         pgadmin) secret_file=${PGDR_PGADMIN_SECRET_FILE:-$root/.local/pgadmin_password} ;;
-        *) echo 'Usage: setup.sh [postgres|pgadmin]' >&2; exit 2 ;;
+        replication) secret_file=${PGDR_REPLICATION_DIR:-$root/.local/replication}/replication_password ;;
+        *) echo 'Usage: setup.sh [postgres|pgadmin|replication]' >&2; exit 2 ;;
     esac
 }
 
