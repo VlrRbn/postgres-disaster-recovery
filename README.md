@@ -1,20 +1,24 @@
 # PostgreSQL Disaster Recovery
 
-A PostgreSQL recovery lab built in small, verifiable milestones. It combines a
-database image built from a digest-pinned base, persistent storage, WAL archiving,
-physical backups, isolated restore, PITR, and measured recovery results.
+A PostgreSQL disaster recovery and replication project built in verifiable
+milestones. It combines a digest-pinned database image, WAL archiving, physical
+backups, PITR, recovery measurement, AWS S3 storage, clean-host EC2 recovery,
+streaming replication, and controlled switchover with replica rejoin.
 
 ## Project Status
 
-Released capabilities run on one Docker host:
+Capability milestones include local Docker runtimes and verified AWS recovery:
 
-| Release | Capability |
-| --- | --- |
-| `v0.1.0` | Local PostgreSQL Foundation |
-| `v0.2.0` | Physical Backup And Restore |
-| `v0.3.0` | Point-In-Time Recovery |
-| `v0.4.0` | Recovery Measurement |
-| `v0.5.0` | Backup Health |
+| Release | Capability | Status |
+| --- | --- | --- |
+| [v0.1.0](https://github.com/VlrRbn/postgres-disaster-recovery/releases/tag/v0.1.0) | Local PostgreSQL Foundation | Released |
+| [v0.2.0](https://github.com/VlrRbn/postgres-disaster-recovery/releases/tag/v0.2.0) | Physical Backup And Restore | Released |
+| [v0.3.0](https://github.com/VlrRbn/postgres-disaster-recovery/releases/tag/v0.3.0) | Point-In-Time Recovery | Released |
+| [v0.4.0](https://github.com/VlrRbn/postgres-disaster-recovery/releases/tag/v0.4.0) | Recovery Measurement | Released |
+| [v0.5.0](https://github.com/VlrRbn/postgres-disaster-recovery/releases/tag/v0.5.0)  | Backup Health | Released |
+| [v0.6.0](https://github.com/VlrRbn/postgres-disaster-recovery/releases/tag/v0.6.0) | External Backup And Clean-Host Recovery | Released |
+| [v0.7.0](https://github.com/VlrRbn/postgres-disaster-recovery/releases/tag/v0.7.0) | Streaming Replication | Released |
+| `v0.8.0` | Controlled Switchover And Rejoin | Local acceptance verified |
 
 ```text
 empty database volume
@@ -28,9 +32,12 @@ empty database volume
 
 Recovery to a selected UTC time before accidental deletion and acknowledged-loss
 measurement are implemented. `make backup-health` checks backup freshness and
-current WAL delivery. The next milestone adds an external AWS S3 repository and
-recovery on a clean replacement host; its S3 backup and WAL delivery step is
-verified locally.
+current WAL delivery. External backup and recovery on a fresh EC2 host were
+verified against AWS and released in `v0.6.0`. Local asynchronous streaming
+replication was released in `v0.7.0`. The `v0.8.0` capability adds a locally
+verified controlled role change, persistent startup fencing, and rejoin of the
+old primary as a read-only replica. Public releases follow merge and successful
+CI on `main`.
 
 ## Local PostgreSQL Foundation
 
@@ -168,7 +175,14 @@ for startup, outage exercises, passwords, and recovery limits.
 
 `make replication-acceptance` verifies exact data transfer, rejected standby
 writes, reconnection after either server stops, and persistence across container
-recreation. This local runtime has no promotion or automatic failover.
+recreation. Failure detection and failover are not automated.
+
+`make replication-promote` performs a controlled switchover after writers are
+stopped, fences the original primary, and promotes the standby. Then
+`make replication-rejoin` uses offline `pg_rewind` to return the old primary as
+a read-only replica. Startup and SQL commands follow the resulting roles.
+See [controlled switchover and rejoin](docs/controlled-switchover.md) for the
+required client pause, brief rejoin outage, guards, and failure handling.
 
 ## Security Defaults
 
@@ -207,6 +221,7 @@ Python 3
 Make
 Git
 ShellCheck
+flock (util-linux)
 ```
 
 The first build downloads the pinned PostgreSQL base and packages from the
@@ -222,8 +237,10 @@ default Compose project `postgres-dr-local`.
 | `make check` | Check shell scripts, Compose configuration, and diff formatting | No database is started |
 | `make replication-up` | Generate separate passwords, start a primary, seed or resume its standby | Two databases running in a separate Compose project |
 | `make replication-status` | Show sender, receiver, slot and replay state | Databases stay running |
+| `make replication-promote` | With writers stopped, fence the original primary and promote the caught-up standby | Original primary stopped; promoted node writable |
+| `make replication-rejoin` | Briefly stop the new primary and run offline `pg_rewind` to rejoin the original primary | Roles reversed; original primary read-only |
 | `make replication-psql` / `make standby-psql` | Open SQL on the replication primary or standby | Databases stay running after `\q` |
-| `make replication-down` | Remove replication containers and network | Both database volumes and passwords retained |
+| `make replication-down` | Remove replication containers and network | Both database volumes, control volume, and passwords retained |
 | `make replication-acceptance` | Verify streaming, read-only standby, outages and persistence | Disposable project removed; images and build cache retained |
 | `make image` | Build the PostgreSQL image with pgBackRest | Local image and build cache; no database is started |
 | `make up` | Generate or reuse the password, build and start PostgreSQL, initialize the repository, and check WAL archiving | Database running with initialized backup storage; no backup yet on first startup |
@@ -426,6 +443,16 @@ On success, the command prints the version, backup, persistence, and restore
 A separate `make down` is not needed for acceptance.
 If cleanup fails, the command reports the test project and retained secret path.
 
+Run the separate replication and controlled switchover scenario with:
+
+```bash
+make replication-acceptance
+```
+
+It verifies streaming, short outages, promotion guards, persisted fencing,
+offline rejoin, and 24 exact records after role-aware container recreation.
+Its own containers, network, three volumes, and temporary secrets are removed.
+
 ## Capability Status
 
 | Capability | Status |
@@ -439,9 +466,11 @@ If cleanup fails, the command reports the test project and retained secret path.
 | Point-in-time recovery | Released in `v0.3.0` |
 | Verified recovery duration and acknowledged-loss measurement | Released in `v0.4.0` |
 | Backup freshness and active WAL delivery health | Released in `v0.5.0` |
-| AWS S3 full backup and WAL storage | Merged in PR #10 |
-| EC2 workload identity and reader/writer profiles | Merged in PR #11 |
-| Recovery from S3 on a clean replacement host | Verified on EC2 |
+| AWS S3 full backup and WAL storage | Released in `v0.6.0` |
+| EC2 workload identity and reader/writer profiles | Released in `v0.6.0` |
+| Recovery from S3 on a clean replacement host | Released in `v0.6.0`; verified on EC2 |
+| Asynchronous streaming and read-only standby | Released in `v0.7.0` |
+| Controlled switchover, saved fencing, and replica rejoin | `v0.8.0`: local acceptance verified |
 
 See the [delivery roadmap](docs/roadmap.md) for milestone scope,
 [contribution guidelines](CONTRIBUTING.md) for the PR workflow, and
@@ -474,11 +503,20 @@ Package dependencies resolve from live APT repositories.
 
 The current checks prove backup creation, WAL delivery, file integrity, PITR,
 and restore into a separate volume with the source stopped. A controlled primary
-crash exercise measures acknowledged loss during archive-only recovery. Both
-databases and the local repository still share one host. S3 backup creation and
-current WAL delivery are separately verified, including restricted IAM access.
+crash exercise measures acknowledged loss during archive-only recovery. The local
+source, restored database, and local repository share one host. Separate AWS
+checks verified S3 backup and WAL storage, restricted IAM access, and recovery
+on a fresh EC2 host with the source stopped.
 Backup health runs on demand; no scheduler or alert transport is installed.
 
+The replication runtime also shares one Docker host and uses asynchronous WAL
+without TLS. Controlled switchover requires paused writers and a reachable source;
+rejoin briefly stops the new primary. Its saved startup guards provide local
+workflow fencing. Distributed fencing, automatic failover, application traffic
+routing, and reverse switchover are not implemented.
+
 SQL exercises use the bootstrap administrator over the local container socket.
-Application roles and remote authentication are not yet covered. Compose file
-secrets are local files rather than an encrypted secret manager.
+Replication uses a dedicated SCRAM-authenticated role over the internal Docker
+network. Application-specific SQL roles and remote application authentication
+are not covered. Compose file secrets are local files rather than an encrypted
+secret manager.

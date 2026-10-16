@@ -1,4 +1,4 @@
-.PHONY: setup check image up psql down acceptance backup-init backup-check backup backup-info backup-verify backup-health backup-health-acceptance restore restore-time restore-latest restore-up restore-psql restore-down pgadmin-up pgadmin-down pgadmin-acceptance rpo-acceptance s3-setup s3-up s3-down s3-psql s3-backup s3-info s3-check s3-health s3-acceptance s3-restore s3-restore-time s3-restore-latest s3-restore-up s3-restore-psql s3-restore-down replication-up replication-down replication-psql standby-psql replication-status replication-acceptance
+.PHONY: setup check image up psql down acceptance backup-init backup-check backup backup-info backup-verify backup-health backup-health-acceptance restore restore-time restore-latest restore-up restore-psql restore-down pgadmin-up pgadmin-down pgadmin-acceptance rpo-acceptance s3-setup s3-up s3-down s3-psql s3-backup s3-info s3-check s3-health s3-acceptance s3-restore s3-restore-time s3-restore-latest s3-restore-up s3-restore-psql s3-restore-down replication-up replication-down replication-psql standby-psql replication-status replication-acceptance replication-promote replication-rejoin
 
 setup:
 	bash scripts/setup.sh
@@ -20,10 +20,16 @@ replication-down:
 	bash scripts/compose.sh --replication down
 
 replication-psql:
-	bash scripts/compose.sh --replication exec --user postgres primary psql -X -U postgres -d orders
+	bash scripts/replication.sh primary-psql
 
 standby-psql:
-	bash scripts/compose.sh --replication exec --user postgres standby psql -X -U postgres -d orders
+	bash scripts/replication.sh standby-psql
+
+replication-promote:
+	bash scripts/replication.sh promote
+
+replication-rejoin:
+	bash scripts/replication.sh rejoin
 
 replication-status:
 	bash scripts/replication.sh status

@@ -26,10 +26,14 @@ independent environment's password files. `PGDR_PROJECT`,
 `PGDR_REPOSITORY`, and the backup runtimes' password variables do not select
 this environment.
 
-Status prints container health, the primary's WAL sender, physical replication
-slot, and the standby's recovery and WAL receiver state. Expect `streaming`,
-`sync_state=async`, an active `standby` slot, and `pg_is_in_recovery()=t` on the
-standby. `replay_lag_bytes` is the difference between the primary's current WAL
+Status labels each Compose service with its current database role and prints
+separate blocks for the primary's WAL sender and replication slots, and the
+standby's recovery and WAL receiver. Table columns use readable labels such as
+`Connection`, `Replay lag (bytes)`, `In use`, and `Last replayed WAL (LSN)`.
+A short legend explains the states and absent connections.
+
+Expect `streaming`, `Mode=async`, slot `standby` with `In use=t`, and `In recovery=t`
+on the standby. `Replay lag (bytes)` is the difference between the primary's current WAL
 position and the standby replay position last reported to the primary. It is
 a point-in-time observation; a healthy standby may briefly report a nonzero gap.
 Standby container health requires readable recovery mode, so it can remain
@@ -73,7 +77,8 @@ Use a new reference when repeating an insert.
 
 ## Stop, Resume, And Observe An Outage
 
-Stop and remove both containers and their network while preserving both volumes:
+Stop and remove both containers and their network while preserving both data
+volumes and the control state:
 
 ```bash
 make replication-down
@@ -132,8 +137,9 @@ bash scripts/compose.sh --replication up --no-build --detach --wait primary
 make replication-status
 ```
 
-The standby stays read-only during the outage; this procedure does not promote
-it or route application traffic. Stop the services with `make replication-down`
+The standby stays read-only during this outage procedure. For an explicit role
+change, see [controlled switchover and rejoin](controlled-switchover.md).
+Stop the services with `make replication-down`
 when finished. Named volumes, local secrets, images, and build cache remain.
 
 ## Authentication And Storage
@@ -154,10 +160,10 @@ Streaming also copies accidental deletes and other unwanted committed changes.
 Keep the existing backup/PITR workflow for recovery to an earlier state.
 
 The standby entrypoint seeds only an empty target. It refuses a nonempty target
-without `PG_VERSION` and `standby.signal`, including a promoted database. Existing
-standby volumes must belong to this primary; no automatic identity reconciliation
-or repair is attempted. Changing a password file does not rotate a role password
-inside an existing primary.
+without `PG_VERSION` and `standby.signal` unless the controlled promotion marker
+permits startup of the new primary. Existingbstandby volumes must belong to this primary;
+no automatic identity reconciliation or repair is attempted. Changing a password
+file does not rotate a role password inside an existing primary.
 
 ## Acceptance
 
@@ -177,8 +183,11 @@ The disposable scenario uses a unique project and temporary secrets, then checks
 - exact 22-row equality after both containers are recreated;
 - no published host ports.
 
+The scenario also verifies controlled promotion, persisted fencing, offline
+rewind, and role-aware restart; see the [switchover contract](controlled-switchover.md#acceptance).
+
 Replay waits use WAL positions with a 60-second deadline. Cleanup removes only
-the disposable project's containers, network, volumes, and secrets. Images and
+the disposable project's containers, network, three volumes, and secrets. Images and
 build cache remain. CI runs this scenario alongside the existing recovery checks.
 
 The completed local run is recorded in

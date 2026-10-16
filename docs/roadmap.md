@@ -10,7 +10,9 @@ names. Each release marks a completed and verified milestone.
 | Point-In-Time Recovery | `v0.3.0` | Released |
 | Recovery Measurement | `v0.4.0` | Released |
 | Backup Health | `v0.5.0` | Released |
-| External Backup And Clean-Host Recovery | `v0.6.0` | S3 and EC2 recovery verified |
+| External Backup And Clean-Host Recovery | `v0.6.0` | Released |
+| Streaming Replication | `v0.7.0` | Released |
+| Controlled Switchover And Rejoin | `v0.8.0` | Local acceptance verified |
 
 ## Physical Backup Delivery Steps
 
@@ -56,18 +58,30 @@ error counters. See [backup health](backup-health.md).
 | EC2 Workload Identity | Key-free instance-mode configuration and separate prefix-scoped writer/reader instance profiles | Merged in PR #11 |
 | Clean-Host Recovery | Recover using only S3 objects on a fresh host/runtime, use a separate reader identity, compare expected data, and confirm new writes | Local/API checks and live EC2 recovery passed |
 
-The first PR creates and validates external storage and its backup/WAL path.
-The identity preparation step is [EC2 workload identity](ec2-workload-identity.md).
-The following [deployment](ec2-s3-recovery.md) exercises replacement-host recovery.
-Release notes and `v0.6.0` follow the completed recovery contract. See [S3 operations](s3-repository.md).
+These steps shipped in
+[v0.6.0](https://github.com/VlrRbn/postgres-disaster-recovery/releases/tag/v0.6.0).
+See [S3 operations](s3-repository.md),
+[EC2 workload identity](ec2-workload-identity.md), and the
+[replacement-host recovery procedure](ec2-s3-recovery.md).
 
 ## Streaming Replication Delivery
 
-The next focused PR adds a separate local primary/standby runtime, dedicated
+Released in `v0.7.0`: a separate local primary/standby runtime, dedicated
 replication credentials, asynchronous WAL streaming, a physical slot with bounded
 retention, and operational commands. Acceptance compares exact records, rejects
 standby writes, exercises outages on both sides, and verifies retained volumes
 after container recreation. See [streaming replication](streaming-replication.md).
+
+## Controlled Switchover Delivery
+
+One PR extends the existing replication runtime with explicit promotion,
+persistent startup fencing, and offline `pg_rewind` to rejoin the old primary.
+It requires a reachable source and paused application writers. Acceptance covers
+promotion guards, a new timeline, writable promoted service, rejected old-primary
+startup, reversed streaming, read-only rejoined data, and role-aware recreation.
+See [controlled switchover and rejoin](controlled-switchover.md).
+
+Release `v0.8.0` follows merge and successful main CI.
 
 ## Acceptance Contracts
 
@@ -81,6 +95,10 @@ after container recreation. See [streaming replication](streaming-replication.md
   current WAL delivery; report successful recovery after an archive outage.
 - **External Backup And Clean-Host Recovery:** preserve backups and WAL outside
   the source host, then verify recovery without its local database or repository.
+- **Streaming Replication:** compare exact data, reject standby writes, and verify
+  catch-up and persistence after outages and container recreation.
+- **Controlled Switchover And Rejoin:** stop and fence the old primary before
+  promotion, rejoin it read-only, and retain reversed roles across recreation.
 
 ## Scope Rules
 
@@ -89,5 +107,5 @@ after container recreation. See [streaming replication](streaming-replication.md
 - Local reproducibility remains supported.
 - Claim backup recovery only after restoration has been exercised.
 
-Retention rollover, alerting, and failover are possible later
+Retention rollover, alerting, and automatic failover are possible later
 capabilities. Their scope and release targets are not yet defined.

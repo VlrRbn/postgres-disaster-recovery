@@ -32,12 +32,12 @@ sql() {
     "${compose[@]}" exec -T --user postgres "$service" \
         psql -X -v ON_ERROR_STOP=1 -U postgres -d orders "$@"
 }
-step() { printf '\n[%s/6] %s\n' "$1" "$2"; }
+step() { printf '\n[%s/10] %s\n' "$1" "$2"; }
 
 wait_for_replay() {
-    local target deadline=$((SECONDS + 60))
-    target=$(sql primary -Atc 'SELECT pg_current_wal_lsn();')
-    until [[ $(sql standby -Atc "SELECT pg_last_wal_replay_lsn() >= '$target'::pg_lsn;") == t ]]; do
+    local source=${1:-primary} replica=${2:-standby} target deadline=$((SECONDS + 60))
+    target=$(sql "$source" -Atc 'SELECT pg_current_wal_lsn();')
+    until [[ $(sql "$replica" -Atc "SELECT pg_last_wal_replay_lsn() >= '$target'::pg_lsn;") == t ]]; do
         if (( SECONDS >= deadline )); then
             echo "Standby did not replay $target within 60 seconds." >&2
             exit 1
@@ -47,11 +47,22 @@ wait_for_replay() {
 }
 
 compare_orders() {
-    wait_for_replay
+    local source=${1:-primary} replica=${2:-standby}
+    wait_for_replay "$source" "$replica"
     for service in primary standby; do
         sql "$service" -c 'COPY (SELECT * FROM orders ORDER BY id) TO STDOUT WITH CSV;' > "$work/$service.csv"
     done
     cmp "$work/primary.csv" "$work/standby.csv"
+}
+
+expect_failure() {
+    local message=$1
+    shift
+    if "$@" > "$work/rejected.log" 2>&1; then
+        echo "Unexpected success; expected: $message" >&2
+        exit 1
+    fi
+    grep -q "$message" "$work/rejected.log"
 }
 
 verify_streaming() {
@@ -127,9 +138,67 @@ verify_recreation() {
     echo 'PASS: standby catch-up, primary outage/reconnection, unsafe-target rejection and volume persistence.'
 }
 
+verify_promotion_guards() {
+    step 7 'Reject premature rejoin and promotion while WAL replay is paused'
+    expect_failure 'Rejoin requires a promoted standby' bash "$root/scripts/replication.sh" rejoin
+    sql standby -c 'SELECT pg_wal_replay_pause();'
+    expect_failure 'WAL replay is paused' bash "$root/scripts/replication.sh" promote
+    [[ $(sql primary -Atc 'SELECT pg_is_in_recovery();') == f ]]
+    [[ $(sql standby -Atc 'SELECT pg_is_in_recovery();') == t ]]
+    sql standby -c 'SELECT pg_wal_replay_resume();'
+}
+
+verify_promotion() {
+    step 8 'Fence the old primary, promote the standby and accept a new write'
+    local old_timeline new_timeline
+    old_timeline=$(sql primary -Atc 'SELECT timeline_id FROM pg_control_checkpoint();')
+    bash "$root/scripts/replication.sh" promote
+    [[ $(sql standby -Atc 'SELECT pg_is_in_recovery();') == f ]]
+    new_timeline=$(sql standby -Atc 'SELECT timeline_id FROM pg_control_checkpoint();')
+    (( new_timeline > old_timeline ))
+    expect_failure 'Old primary is fenced' "${compose[@]}" run --rm --no-deps primary
+    bash "$root/scripts/replication.sh" up
+    [[ $(docker inspect "$("${compose[@]}" ps --all --quiet primary)" --format '{{.State.Running}}') == false ]]
+    sql standby -c "INSERT INTO orders (reference, amount_cents) VALUES ('after-promotion', 2300);"
+    [[ $(sql standby -Atc 'SELECT count(*) FROM orders;') == 23 ]]
+    "${compose[@]}" down
+    bash "$root/scripts/replication.sh" up
+    [[ $(sql standby -Atc "SELECT count(*) FROM orders WHERE reference = 'after-promotion';") == 1 ]]
+}
+
+verify_rejoin() {
+    step 9 'Rewind the old primary offline and rejoin it as a read-only standby'
+    bash "$root/scripts/replication.sh" rejoin
+    [[ $(sql primary -Atc 'SELECT pg_is_in_recovery();') == t ]]
+    [[ $(sql primary -Atc 'SHOW primary_slot_name;') == primary ]]
+    sql standby -c "INSERT INTO orders (reference, amount_cents) VALUES ('after-rejoin', 2400);"
+    compare_orders standby primary
+    expect_failure '25006' sql primary -v VERBOSITY=verbose \
+        -c "INSERT INTO orders (reference, amount_cents) VALUES ('old-primary-write-must-fail', 100);"
+}
+
+verify_switched_recreation() {
+    step 10 'Resume the reversed topology and verify the SQL commands follow roles'
+    "${compose[@]}" down
+    bash "$root/scripts/replication.sh" up
+    compare_orders standby primary
+    [[ $(sql primary -Atc 'SELECT count(*) FROM orders;') == 24 ]]
+    [[ $(sql primary -Atc 'SELECT pg_is_in_recovery();') == t ]]
+    [[ $(sql standby -Atc 'SELECT pg_is_in_recovery();') == f ]]
+    [[ $(bash "$root/scripts/replication.sh" primary-psql -Atc 'SELECT pg_is_in_recovery();') == f ]]
+    [[ $(bash "$root/scripts/replication.sh" standby-psql -Atc 'SELECT pg_is_in_recovery();') == t ]]
+    expect_failure 'already switched roles' bash "$root/scripts/replication.sh" promote
+    bash "$root/scripts/replication.sh" status
+    echo 'PASS: controlled promotion, persisted fencing, offline pg_rewind, reversed streaming and 24 exact rows.'
+}
+
 verify_streaming
 verify_read_only
 verify_standby_catchup
 verify_primary_outage
 verify_target_guard
 verify_recreation
+verify_promotion_guards
+verify_promotion
+verify_rejoin
+verify_switched_recreation

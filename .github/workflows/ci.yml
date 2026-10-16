@@ -42,7 +42,7 @@ jobs:
         run: cat .local/reports/*-s3.json
       - name: Verify optional pgAdmin access and persistence
         run: make pgadmin-acceptance
-      - name: Verify streaming replication and outage recovery
+      - name: Verify replication, controlled switchover, and rejoin
         run: make replication-acceptance
 
   repository-infrastructure:
