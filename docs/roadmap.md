@@ -12,7 +12,8 @@ names. Each release marks a completed and verified milestone.
 | Backup Health | `v0.5.0` | Released |
 | External Backup And Clean-Host Recovery | `v0.6.0` | Released |
 | Streaming Replication | `v0.7.0` | Released |
-| Controlled Switchover And Rejoin | `v0.8.0` | Local acceptance verified |
+| Controlled Switchover And Rejoin | `v0.8.0` | Released |
+| Scheduled Backups And Health Checks | `v0.9.0` | Local systemd exercise passed; CI pending |
 
 ## Physical Backup Delivery Steps
 
@@ -81,7 +82,19 @@ promotion guards, a new timeline, writable promoted service, rejected old-primar
 startup, reversed streaming, read-only rejoined data, and role-aware recreation.
 See [controlled switchover and rejoin](controlled-switchover.md).
 
-Release `v0.8.0` follows merge and successful main CI.
+Released in `v0.8.0` after merge and successful main CI.
+
+## Scheduled Backup Delivery
+
+One PR adds optional systemd user services and timers for the existing local
+backup and health commands. It includes explicit configuration, UTC calendar
+times, persisted catch-up, shared job locking, journald output, and lifecycle
+commands. Acceptance verifies unit syntax, calendars, real job entrypoints,
+contention, failure propagation, and safe configuration handling without enabling
+host timers. A separate operator installation exercised services, a temporary
+health timer, journal inspection, and a failure/recovery cycle. Normal calendar
+firing and logout/reboot catch-up remain untested. See
+[backup scheduling](backup-scheduling.md).
 
 ## Acceptance Contracts
 
@@ -99,6 +112,8 @@ Release `v0.8.0` follows merge and successful main CI.
   catch-up and persistence after outages and container recreation.
 - **Controlled Switchover And Rejoin:** stop and fence the old primary before
   promotion, rejoin it read-only, and retain reversed roles across recreation.
+- **Scheduled Backups And Health Checks:** install explicit user units, preserve
+  operator config, serialize jobs, create verified backups, and expose failures.
 
 ## Scope Rules
 

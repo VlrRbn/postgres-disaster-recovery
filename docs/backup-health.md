@@ -39,8 +39,9 @@ PGDR_BACKUP_MAX_AGE_SECONDS=3600 PGDR_ARCHIVE_TIMEOUT_SECONDS=15 make backup-hea
 
 Both settings require positive integer seconds; the archive timeout is limited
 to `86400` seconds. The 24-hour default is a lab policy, not a guaranteed recovery
-objective. Choose a limit consistent with the intended backup schedule; the lab
-does not install a scheduled backup job.
+objective. Choose a limit consistent with the intended backup schedule. The
+optional [systemd schedule](backup-scheduling.md) sets 26 hours in its saved config
+to provide margin around daily backups; standalone health defaults remain 24 hours.
 
 Backup age uses the host UTC wall clock and pgBackRest's completion timestamp.
 Age equal to the configured limit passes. A future completion timestamp fails
@@ -144,9 +145,9 @@ CI runs the same command and prints the saved report.
 
 ## Scope
 
-This is an on-demand detection command for the existing local backup repository.
-It does not install a scheduler, send notifications, or provide a monitoring
-dashboard. A healthy snapshot establishes the checked conditions at that run;
+This detection command can run on demand or through the optional
+[local schedule](backup-scheduling.md). It does not send notifications or provide
+a monitoring dashboard. A healthy snapshot establishes the checked conditions at that run;
 backup integrity, restore capability, off-host durability, and recovery objectives
 remain separate contracts.
 
