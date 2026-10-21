@@ -1,0 +1,13 @@
+[Unit]
+Description=PostgreSQL full backup and repository verification
+
+[Service]
+Type=oneshot
+Environment=PATH=/usr/local/bin:/usr/bin:/bin
+EnvironmentFile=%E/postgres-dr/schedule.env
+ExecStart=/usr/bin/make --no-print-directory --directory=${PGDR_ROOT} scheduled-backup
+TimeoutStartSec=1h
+UMask=0077
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=postgres-dr-backup

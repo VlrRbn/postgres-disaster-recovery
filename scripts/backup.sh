@@ -39,8 +39,32 @@ create_full_backup() {
     verify_repository
 }
 
+run_scheduled_job() {
+    local target=$1 project=${PGDR_PROJECT:-postgres-dr-local}
+    local timeout=${PGDR_SCHEDULE_LOCK_TIMEOUT_SECONDS:-300} result=0
+    if [[ ${PGDR_REPOSITORY:-local} != local || ${PGDR_S3_FIXTURE:-0} != 0 ]]; then
+        echo 'Scheduled jobs support the local backup repository only.' >&2
+        exit 2
+    fi
+    if [[ ! "$project" =~ ^postgres-dr-[a-z0-9-]+$ || ! "$timeout" =~ ^[1-9][0-9]{0,3}$ ]] || (( timeout > 3600 )); then
+        echo 'Use a valid postgres-dr-* project and a lock timeout of 1..3600 seconds.' >&2
+        exit 2
+    fi
+    export PGDR_PROJECT="$project" PGDR_REPOSITORY=local PGDR_S3_FIXTURE=0
+    mkdir -p "$root/.local/locks"
+    # Both scheduled operations serialize on the same project lock; failures propagate.
+    flock --exclusive --wait "$timeout" --conflict-exit-code 75 "$root/.local/locks/schedule-$project.lock" \
+        make --no-print-directory --directory="$root" "$target" || result=$?
+    if (( result == 75 )); then
+        echo "Scheduled job could not acquire the $project lock within $timeout seconds." >&2
+    elif (( result != 0 )); then
+        echo "Scheduled $target failed with exit status $result; inspect the job output." >&2
+    fi
+    return "$result"
+}
+
 usage() {
-    echo 'Usage: backup.sh {init|check|full|info|verify}' >&2
+    echo 'Usage: backup.sh {init|check|full|info|verify|scheduled-full|scheduled-health}' >&2
     exit 2
 }
 
@@ -62,6 +86,12 @@ case "$1" in
         ;;
     verify)
         verify_repository
+        ;;
+    scheduled-full)
+        run_scheduled_job backup
+        ;;
+    scheduled-health)
+        run_scheduled_job backup-health
         ;;
     *)
         usage

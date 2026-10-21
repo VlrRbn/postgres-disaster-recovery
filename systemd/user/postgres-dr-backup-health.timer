@@ -1,0 +1,10 @@
+[Unit]
+Description=PostgreSQL backup health every thirty minutes
+
+[Timer]
+OnCalendar=*-*-* *:15,45:00 UTC
+AccuracySec=1min
+Persistent=true
+
+[Install]
+WantedBy=timers.target

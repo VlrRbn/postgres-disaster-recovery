@@ -3,7 +3,8 @@
 A PostgreSQL disaster recovery and replication project built in verifiable
 milestones. It combines a digest-pinned database image, WAL archiving, physical
 backups, PITR, recovery measurement, AWS S3 storage, clean-host EC2 recovery,
-streaming replication, and controlled switchover with replica rejoin.
+streaming replication, controlled switchover with replica rejoin, and optional
+scheduled backups and health checks.
 
 ## Project Status
 
@@ -18,7 +19,8 @@ Capability milestones include local Docker runtimes and verified AWS recovery:
 | [v0.5.0](https://github.com/VlrRbn/postgres-disaster-recovery/releases/tag/v0.5.0)  | Backup Health | Released |
 | [v0.6.0](https://github.com/VlrRbn/postgres-disaster-recovery/releases/tag/v0.6.0) | External Backup And Clean-Host Recovery | Released |
 | [v0.7.0](https://github.com/VlrRbn/postgres-disaster-recovery/releases/tag/v0.7.0) | Streaming Replication | Released |
-| `v0.8.0` | Controlled Switchover And Rejoin | Local acceptance verified |
+| [v0.8.0](https://github.com/VlrRbn/postgres-disaster-recovery/releases/tag/v0.8.0) | Controlled Switchover And Rejoin | Released |
+| `v0.9.0` | Scheduled Backups And Health Checks | Local systemd exercise passed; CI pending |
 
 ```text
 empty database volume
@@ -34,10 +36,9 @@ Recovery to a selected UTC time before accidental deletion and acknowledged-loss
 measurement are implemented. `make backup-health` checks backup freshness and
 current WAL delivery. External backup and recovery on a fresh EC2 host were
 verified against AWS and released in `v0.6.0`. Local asynchronous streaming
-replication was released in `v0.7.0`. The `v0.8.0` capability adds a locally
-verified controlled role change, persistent startup fencing, and rejoin of the
-old primary as a read-only replica. Public releases follow merge and successful
-CI on `main`.
+replication was released in `v0.7.0`, followed by controlled switchover and rejoin
+in `v0.8.0`. The `v0.9.0` capability adds optional systemd user timers for local
+full backups and health checks. Public releases follow merge and successful CI on `main`.
 
 ## Local PostgreSQL Foundation
 
@@ -143,6 +144,23 @@ an old archive timestamp alone do not fail a successful active check.
 See [backup health operations](docs/backup-health.md) for limits, exit codes,
 failure handling, and the standalone acceptance scenario.
 
+## Scheduled Backups And Health Checks
+
+`make schedule-install` installs optional systemd user units without enabling
+them. After checking the saved configuration and running both services once,
+`make schedule-start` enables daily full backups and health checks every thirty
+minutes. A shared lock serializes the scheduled jobs for the configured local
+project; failures appear in systemd service results and the user journal.
+
+`make schedule-stop` disables future timer activations while allowing an active
+job to finish. `make schedule-remove` removes idle installed units and retains
+configuration and backups. See [backup scheduling](docs/backup-scheduling.md)
+for prerequisites, UTC times, logs, user-session lifetime, and cleanup.
+Scheduling is supported for the local backup runtime. An operator systemd
+exercise recorded service execution, a temporary health-timer run, journal
+output, and failure/recovery; see [scheduling evidence](evidence/backup-scheduling-acceptance-20261020.md).
+Normal calendar firing and logout/reboot catch-up remain untested.
+
 ## AWS S3 Repository
 
 The optional [AWS S3 runtime](docs/s3-repository.md) uses a dedicated Terraform
@@ -222,6 +240,7 @@ Make
 Git
 ShellCheck
 flock (util-linux)
+systemd-analyze (unit validation); systemd user manager (scheduled jobs)
 ```
 
 The first build downloads the pinned PostgreSQL base and packages from the
@@ -230,10 +249,27 @@ Debian and PostgreSQL APT repositories.
 ## Local Commands
 
 Run these commands from the repository root. The interactive examples use the
-default Compose project `postgres-dr-local`.
+default Compose project `postgres-dr-local`. Run `make help` (or just `make`) to
+list all available commands by purpose.
+
+To stop every running project container from this checkout, including local,
+S3, restored databases, pgAdmin, and replication:
+
+```bash
+make stop-all
+```
+
+This also disables the installed project user timers. Containers, networks,
+volumes, secrets, and backups are retained. If a scheduled job or pgBackRest
+backup is still running, the command refuses container shutdown; let the job
+finish and repeat it. Other Docker projects and remote EC2 hosts are unaffected.
+Resume the required runtime with `make up`, `make s3-up`, or
+`make replication-up`; resume timers explicitly with `make schedule-start`.
 
 | Command | What It Does | What Remains Afterwards |
 | --- | --- | --- |
+| `make help` | List commands grouped by purpose; also the default `make` action | No services started |
+| `make stop-all` | Disable installed project timers and stop running project containers from this checkout | Containers, networks, volumes, secrets, and backups retained |
 | `make check` | Check shell scripts, Compose configuration, and diff formatting | No database is started |
 | `make replication-up` | Generate separate passwords, start a primary, seed or resume its standby | Two databases running in a separate Compose project |
 | `make replication-status` | Show sender, receiver, slot and replay state | Databases stay running |
@@ -253,6 +289,12 @@ default Compose project `postgres-dr-local`.
 | `make backup-info` | Display available backups and WAL ranges | Existing data and backups unchanged |
 | `make backup-verify` | Verify completed backup files and archives; reject empty or invalid results | Existing data and backups unchanged |
 | `make backup-health` | Report completed backup freshness, database reachability, and active WAL delivery as JSON | Database stays running; a WAL switch can add archived WAL; no backup is created |
+| `make schedule-install` | Install user units and create or preserve private schedule configuration | Units installed; timers not enabled |
+| `make schedule-start` | Enable and start both user timers | Scheduled jobs run while the user manager and database are available |
+| `make schedule-status` | Show upcoming timer runs and last job results | No job is started |
+| `make schedule-stop` | Disable both timers | Active jobs finish; unit files, config, and backups remain |
+| `make schedule-remove` | Disable timers and remove idle unit files | Config, logs, and Docker resources retained |
+| `make schedule-acceptance` | Verify health, scheduled job entrypoints, unit definitions, locking, and failures | Disposable Docker project removed; no host timers installed |
 | `make backup-health-acceptance` | Verify health, missing or stale backup, archive outage, recovery, and stopped primary | JSON evidence retained under `.local/reports/`; disposable containers, network, volumes, and password removed |
 | `make s3-up` | Refresh writer credentials, build/recreate the separate S3 primary, initialize its stanza, and check S3 WAL delivery | S3 primary running; password, private config, database volume, and S3 objects retained |
 | `make s3-backup` | Create and verify a full backup in the configured AWS S3 prefix | Full backup and required WAL in S3 |
@@ -470,7 +512,8 @@ Its own containers, network, three volumes, and temporary secrets are removed.
 | EC2 workload identity and reader/writer profiles | Released in `v0.6.0` |
 | Recovery from S3 on a clean replacement host | Released in `v0.6.0`; verified on EC2 |
 | Asynchronous streaming and read-only standby | Released in `v0.7.0` |
-| Controlled switchover, saved fencing, and replica rejoin | `v0.8.0`: local acceptance verified |
+| Controlled switchover, saved fencing, and replica rejoin | Released in `v0.8.0` |
+| Scheduled local full backups and health checks | `v0.9.0`: local systemd exercise passed; CI pending |
 
 See the [delivery roadmap](docs/roadmap.md) for milestone scope,
 [contribution guidelines](CONTRIBUTING.md) for the PR workflow, and
@@ -496,7 +539,9 @@ password in an initialized database.
 
 The default local runtime stores backups and WAL on the database's Docker host.
 The optional S3 runtime stores them in AWS with SSE-S3 encryption and bucket
-versioning. Neither runtime installs backup scheduling. Retention is configured
+versioning. Optional systemd user timers schedule the local backup and health
+commands when explicitly installed and enabled. S3 jobs remain on demand.
+Retention is configured
 and S3 expiration is exercised with three full backups and recovery from the
 oldest retained copy. Local repository retention rollover remains untested.
 Package dependencies resolve from live APT repositories.
@@ -507,7 +552,9 @@ crash exercise measures acknowledged loss during archive-only recovery. The loca
 source, restored database, and local repository share one host. Separate AWS
 checks verified S3 backup and WAL storage, restricted IAM access, and recovery
 on a fresh EC2 host with the source stopped.
-Backup health runs on demand; no scheduler or alert transport is installed.
+Backup health can run on demand or through the optional local timer. No external
+alert transport is installed. User-manager lifetime, database availability, and
+host uptime govern scheduled execution; lingering is an explicit operator choice.
 
 The replication runtime also shares one Docker host and uses asynchronous WAL
 without TLS. Controlled switchover requires paused writers and a reachable source;

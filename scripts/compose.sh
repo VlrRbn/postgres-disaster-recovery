@@ -2,6 +2,42 @@
 set -euo pipefail
 
 root=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
+
+stop_all() {
+    local listing container project processes
+    local containers=()
+    bash "$root/scripts/setup.sh" schedule-stop
+    bash "$root/scripts/setup.sh" schedule-idle
+
+    # Match both this checkout and our Compose project prefix, including custom projects.
+    listing=$(docker ps --filter "label=com.docker.compose.project.working_dir=$root" \
+        --format '{{.ID}} {{.Label "com.docker.compose.project"}}')
+    while read -r container project; do
+        if [[ -n "$container" && "$project" == postgres-dr-* ]]; then
+            containers+=("$container")
+        fi
+    done <<< "$listing"
+    if (( ${#containers[@]} == 0 )); then
+        echo 'No running project containers in this checkout.'
+        return
+    fi
+    # A manually launched backup may also be running outside the systemd services.
+    for container in "${containers[@]}"; do
+        # Docker needs the PID column to select this container's host processes.
+        processes=$(docker top "$container" -eo pid,args)
+        if grep -Eq 'pgbackrest.*( backup([[:space:]]|$)|\[backup(:|\]))' <<< "$processes"; then
+            echo "Backup is running in container $container; let it finish and repeat make stop-all." >&2
+            exit 1
+        fi
+    done
+    docker stop --timeout 30 "${containers[@]}"
+    echo 'Project containers stopped. Containers, networks, volumes, secrets and backups retained.'
+}
+
+if [[ ${1:-} == --stop-all ]]; then
+    stop_all
+    exit
+fi
 if [[ ${1:-} == --replication ]]; then
     shift
     project=${PGDR_REPLICATION_PROJECT:-postgres-dr-replication}

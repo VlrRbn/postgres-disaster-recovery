@@ -2,6 +2,13 @@
 set -euo pipefail
 
 root=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
+schedule=false
+stages=6
+case "${1:-}" in
+    '') ;;
+    --schedule) schedule=true; stages=9 ;;
+    *) echo 'Usage: backup-health-acceptance.sh [--schedule]' >&2; exit 2 ;;
+esac
 work=$(mktemp -d)
 PGDR_PROJECT="postgres-dr-health-test-$(date +%s)-$$"
 export PGDR_PROJECT
@@ -14,10 +21,15 @@ compose=(bash "$root/scripts/compose.sh")
 cleanup() {
     local result=$?
     trap - EXIT
+    if [[ -n ${lock_holder:-} ]]; then
+        kill "$lock_holder" 2>/dev/null || true
+        wait "$lock_holder" 2>/dev/null || true
+    fi
     if (( result != 0 )); then
         "${compose[@]}" logs --no-color >&2 || true
     fi
     if "${compose[@]}" down --volumes --remove-orphans; then
+        rm -f -- "$root/.local/locks/schedule-$PGDR_PROJECT.lock"
         rm -rf -- "$work"
     else
         echo "Cleanup failed for $PGDR_PROJECT; secret retained at $PGDR_SECRET_FILE." >&2
@@ -45,7 +57,63 @@ expect_health() {
 }
 
 step() {
-    printf '\n[%s/6] %s\n' "$1" "$2"
+    printf '\n[%s/%s] %s\n' "$1" "$stages" "$2"
+}
+
+verify_schedule_jobs() {
+    step 7 'Validate systemd units and run the scheduled backup and health entrypoints'
+    make --no-print-directory --directory="$root" schedule-check
+    "${compose[@]}" up --no-build --detach --wait --wait-timeout 120 postgres
+    make --no-print-directory --directory="$root" scheduled-backup
+    make --no-print-directory --directory="$root" scheduled-health > "$work/scheduled-health.json"
+    python3 - "$work/scheduled-health.json" <<'PY'
+import json
+import sys
+with open(sys.argv[1]) as stream:
+    report = json.load(stream)
+assert report['status'] == 'healthy'
+PY
+    [[ $(sql -Atc "SELECT count(*) FROM orders WHERE reference = 'health-preserved';") == 1 ]]
+}
+
+verify_schedule_lock() {
+    step 8 'Reject overlapping jobs instead of reporting a skipped probe as healthy'
+    local lock="$root/.local/locks/schedule-$PGDR_PROJECT.lock"
+    # The child expands its positional argument only after acquiring the lock.
+    # shellcheck disable=SC2016
+    flock --no-fork "$lock" bash -c 'touch "$1"; exec sleep 30' _ "$work/lock-ready" &
+    lock_holder=$!
+    local deadline=$((SECONDS + 5)) result=0
+    until [[ -f "$work/lock-ready" ]]; do
+        (( SECONDS < deadline )) || { echo 'Lock holder did not start.' >&2; exit 1; }
+        sleep 0.1
+    done
+    PGDR_SCHEDULE_LOCK_TIMEOUT_SECONDS=1 bash "$root/scripts/backup.sh" scheduled-health \
+        > "$work/lock-failure.log" 2>&1 || result=$?
+    [[ "$result" == 75 ]]
+    grep -q 'could not acquire' "$work/lock-failure.log"
+    kill "$lock_holder"
+    wait "$lock_holder" 2>/dev/null || true
+    unset lock_holder
+}
+
+verify_schedule_failure() {
+    step 9 'Propagate failures when the primary is stopped'
+    "${compose[@]}" stop postgres
+    local result=0
+    bash "$root/scripts/backup.sh" scheduled-full > "$work/scheduled-backup-failure.log" 2>&1 || result=$?
+    (( result != 0 ))
+    result=0
+    bash "$root/scripts/backup.sh" scheduled-health > "$work/scheduled-unhealthy.json" 2> "$work/scheduled-health-failure.log" || result=$?
+    (( result != 0 ))
+    python3 - "$work/scheduled-unhealthy.json" <<'PY'
+import json
+import sys
+with open(sys.argv[1]) as stream:
+    assert json.load(stream)['status'] == 'unhealthy'
+PY
+    echo 'PASS: systemd definitions and calendars valid; scheduled backup and JSON health jobs succeed.'
+    echo 'PASS: lock contention and stopped-primary jobs fail; host user timers were not installed or enabled.'
 }
 
 prepare_primary() {
@@ -136,3 +204,8 @@ verify_archive_outage
 verify_archive_recovery
 verify_stopped_primary
 write_report
+if "$schedule"; then
+    verify_schedule_jobs
+    verify_schedule_lock
+    verify_schedule_failure
+fi

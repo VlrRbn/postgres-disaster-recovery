@@ -32,8 +32,8 @@ jobs:
         run: make rpo-acceptance
       - name: Show acknowledged workload RPO
         run: cat .local/reports/*-rpo.json
-      - name: Verify backup health and archive failure detection
-        run: make backup-health-acceptance
+      - name: Verify backup health and scheduled job entrypoints
+        run: make schedule-acceptance
       - name: Show backup health acceptance
         run: cat .local/reports/*-health.json
       - name: Verify S3 API backup and WAL storage
