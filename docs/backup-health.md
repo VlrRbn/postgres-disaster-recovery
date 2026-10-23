@@ -146,8 +146,9 @@ CI runs the same command and prints the saved report.
 ## Scope
 
 This detection command can run on demand or through the optional
-[local schedule](backup-scheduling.md). It does not send notifications or provide
-a monitoring dashboard. A healthy snapshot establishes the checked conditions at that run;
+[local schedule](backup-scheduling.md). The scheduled wrapper can send optional
+[Telegram/email alerts](backup-alerting.md); direct health invocations remain
+notification-free. A healthy snapshot establishes the checked conditions at that run;
 backup integrity, restore capability, off-host durability, and recovery objectives
 remain separate contracts.
 

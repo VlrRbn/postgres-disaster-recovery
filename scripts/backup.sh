@@ -53,7 +53,8 @@ run_scheduled_job() {
     export PGDR_PROJECT="$project" PGDR_REPOSITORY=local PGDR_S3_FIXTURE=0
     mkdir -p "$root/.local/locks"
     # Both scheduled operations serialize on the same project lock; failures propagate.
-    flock --exclusive --wait "$timeout" --conflict-exit-code 75 "$root/.local/locks/schedule-$project.lock" \
+    python3 "$root/scripts/backup_alerts.py" run "$target" -- \
+        flock --exclusive --wait "$timeout" --conflict-exit-code 75 "$root/.local/locks/schedule-$project.lock" \
         make --no-print-directory --directory="$root" "$target" || result=$?
     if (( result == 75 )); then
         echo "Scheduled job could not acquire the $project lock within $timeout seconds." >&2

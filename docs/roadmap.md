@@ -13,7 +13,8 @@ names. Each release marks a completed and verified milestone.
 | External Backup And Clean-Host Recovery | `v0.6.0` | Released |
 | Streaming Replication | `v0.7.0` | Released |
 | Controlled Switchover And Rejoin | `v0.8.0` | Released |
-| Scheduled Backups And Health Checks | `v0.9.0` | Local systemd exercise passed; CI pending |
+| Scheduled Backups And Health Checks | `v0.9.0` | Released |
+| Backup Alerting | `v0.10.0` | Local and live delivery checks passed |
 
 ## Physical Backup Delivery Steps
 
@@ -96,6 +97,18 @@ health timer, journal inspection, and a failure/recovery cycle. Normal calendar
 firing and logout/reboot catch-up remain untested. See
 [backup scheduling](backup-scheduling.md).
 
+Released in `v0.9.0` after merge and successful main CI.
+
+## Backup Alerting Delivery
+
+One PR adds independently enabled Telegram and SMTP delivery to the existing
+local scheduled jobs. Private configuration and per-project/job/channel state
+support failure and recovery messages, repeat suppression, and retries on later
+runs. Validation uses temporary loopback HTTPS and SMTP TLS servers, including
+partial delivery and recovery. A separate operator exercise confirmed failure
+receipt in Telegram/Gmail, suppression of repeated failures, and recovery
+acceptance by both providers. See [backup alerting](backup-alerting.md).
+
 ## Acceptance Contracts
 
 - **Physical Backup And Restore:** create a pgBackRest backup, restore into
@@ -114,6 +127,8 @@ firing and logout/reboot catch-up remain untested. See
   promotion, rejoin it read-only, and retain reversed roles across recreation.
 - **Scheduled Backups And Health Checks:** install explicit user units, preserve
   operator config, serialize jobs, create verified backups, and expose failures.
+- **Backup Alerting:** report job failure and recovery to optional Telegram/SMTP
+  channels, suppress accepted repeats, and retry a failed channel independently.
 
 ## Scope Rules
 
@@ -122,5 +137,5 @@ firing and logout/reboot catch-up remain untested. See
 - Local reproducibility remains supported.
 - Claim backup recovery only after restoration has been exercised.
 
-Retention rollover, alerting, and automatic failover are possible later
-capabilities. Their scope and release targets are not yet defined.
+Retention rollover, independent external monitoring, and automatic failover
+are possible later capabilities. Their scope and release targets are not yet defined.
