@@ -112,6 +112,16 @@ its existing 24-hour default. Neither interval is an established recovery object
 Each active health check forces a WAL switch and may generate an archived segment
 even when the database has no application writes.
 
+## Optional Failure Notifications
+
+`make alerts-setup` prepares a private Telegram/SMTP configuration with delivery
+disabled. After configuring and enabling a channel, the existing scheduled
+entrypoints report job failure and recovery with saved per-channel suppression.
+No extra timer or unit is needed. See [backup alerting](backup-alerting.md) for
+recipient setup, retries, state files, and an intentional failure/recovery test.
+A notification failure is visible in the service result even if the underlying
+backup or health job succeeded; inspect both job output and alert diagnostics.
+
 ## User Sessions And Reboots
 
 A user manager depends on user-session lifetime. Check whether lingering is enabled

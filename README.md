@@ -4,7 +4,7 @@ A PostgreSQL disaster recovery and replication project built in verifiable
 milestones. It combines a digest-pinned database image, WAL archiving, physical
 backups, PITR, recovery measurement, AWS S3 storage, clean-host EC2 recovery,
 streaming replication, controlled switchover with replica rejoin, and optional
-scheduled backups and health checks.
+scheduled backups and health checks, and optional Telegram/email alerting.
 
 ## Project Status
 
@@ -20,7 +20,8 @@ Capability milestones include local Docker runtimes and verified AWS recovery:
 | [v0.6.0](https://github.com/VlrRbn/postgres-disaster-recovery/releases/tag/v0.6.0) | External Backup And Clean-Host Recovery | Released |
 | [v0.7.0](https://github.com/VlrRbn/postgres-disaster-recovery/releases/tag/v0.7.0) | Streaming Replication | Released |
 | [v0.8.0](https://github.com/VlrRbn/postgres-disaster-recovery/releases/tag/v0.8.0) | Controlled Switchover And Rejoin | Released |
-| `v0.9.0` | Scheduled Backups And Health Checks | Local systemd exercise passed; CI pending |
+| [v0.9.0](https://github.com/VlrRbn/postgres-disaster-recovery/releases/tag/v0.9.0) | Scheduled Backups And Health Checks | Released |
+| `v0.10.0` | Backup Alerting | Local and live delivery checks passed |
 
 ```text
 empty database volume
@@ -161,6 +162,21 @@ exercise recorded service execution, a temporary health-timer run, journal
 output, and failure/recovery; see [scheduling evidence](evidence/backup-scheduling-acceptance-20261020.md).
 Normal calendar firing and logout/reboot catch-up remain untested.
 
+## Backup Alerting
+
+`make alerts-setup` creates private configuration with Telegram and email both disabled.
+Enable either or both channels to receive failures and recovery from `make scheduled-backup`
+and `make scheduled-health`, including their systemd invocations. Saved per-channel
+state suppresses repeated accepted messages and retries failed delivery on later runs.
+Direct on-demand health and backup commands do not send notifications.
+
+Telegram uses verified HTTPS; SMTP supports verified STARTTLS or implicit TLS.
+Job stdout stays intact, notification diagnostics go to stderr/journald, and
+secrets remain outside Git. Tests use local TLS fixtures; a separate operator
+exercise confirmed failure receipt in Telegram and Gmail, repeat suppression,
+and recovery acceptance by both providers. See [alerting operations](docs/backup-alerting.md)
+and [alerting evidence](evidence/backup-alerting-acceptance-20261023.md).
+
 ## AWS S3 Repository
 
 The optional [AWS S3 runtime](docs/s3-repository.md) uses a dedicated Terraform
@@ -239,6 +255,7 @@ Python 3
 Make
 Git
 ShellCheck
+OpenSSL (local TLS test certificates)
 flock (util-linux)
 systemd-analyze (unit validation); systemd user manager (scheduled jobs)
 ```
@@ -289,6 +306,8 @@ Resume the required runtime with `make up`, `make s3-up`, or
 | `make backup-info` | Display available backups and WAL ranges | Existing data and backups unchanged |
 | `make backup-verify` | Verify completed backup files and archives; reject empty or invalid results | Existing data and backups unchanged |
 | `make backup-health` | Report completed backup freshness, database reachability, and active WAL delivery as JSON | Database stays running; a WAL switch can add archived WAL; no backup is created |
+| `make alerts-setup` | Create or preserve private Telegram/SMTP configuration | Both channels disabled on first setup; no messages sent |
+| `make alerts-acceptance` | Verify suppression, retries, recovery and local TLS transports | Temporary fixtures removed; no messages to real recipients |
 | `make schedule-install` | Install user units and create or preserve private schedule configuration | Units installed; timers not enabled |
 | `make schedule-start` | Enable and start both user timers | Scheduled jobs run while the user manager and database are available |
 | `make schedule-status` | Show upcoming timer runs and last job results | No job is started |
@@ -513,7 +532,8 @@ Its own containers, network, three volumes, and temporary secrets are removed.
 | Recovery from S3 on a clean replacement host | Released in `v0.6.0`; verified on EC2 |
 | Asynchronous streaming and read-only standby | Released in `v0.7.0` |
 | Controlled switchover, saved fencing, and replica rejoin | Released in `v0.8.0` |
-| Scheduled local full backups and health checks | `v0.9.0`: local systemd exercise passed; CI pending |
+| Scheduled local full backups and health checks | Released in `v0.9.0` |
+| Telegram and email backup alerts | `v0.10.0`: local and live delivery checks passed |
 
 See the [delivery roadmap](docs/roadmap.md) for milestone scope,
 [contribution guidelines](CONTRIBUTING.md) for the PR workflow, and
@@ -552,9 +572,12 @@ crash exercise measures acknowledged loss during archive-only recovery. The loca
 source, restored database, and local repository share one host. Separate AWS
 checks verified S3 backup and WAL storage, restricted IAM access, and recovery
 on a fresh EC2 host with the source stopped.
-Backup health can run on demand or through the optional local timer. No external
-alert transport is installed. User-manager lifetime, database availability, and
-host uptime govern scheduled execution; lingering is an explicit operator choice.
+Backup health can run on demand or through the optional local timer. Optional
+Telegram and SMTP delivery reports completed local scheduled jobs when configured;
+no recipients are enabled by default. This runs on the same host and cannot
+independently detect host or scheduler outages. User-manager lifetime, database
+availability, and host uptime govern execution; lingering is an explicit operator
+choice.
 
 The replication runtime also shares one Docker host and uses asynchronous WAL
 without TLS. Controlled switchover requires paused writers and a reachable source;

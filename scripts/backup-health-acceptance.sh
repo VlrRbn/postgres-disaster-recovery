@@ -13,6 +13,9 @@ work=$(mktemp -d)
 PGDR_PROJECT="postgres-dr-health-test-$(date +%s)-$$"
 export PGDR_PROJECT
 export PGDR_SECRET_FILE="$work/postgres_password"
+# Never use the operator's alert recipients in a disposable acceptance run.
+export PGDR_ALERT_CONFIG="$work/alerts.json"
+export PGDR_ALERT_STATE_DIR="$work/alert-state"
 # Explicit limits keep the scenario independent of interactive operator settings.
 export PGDR_BACKUP_MAX_AGE_SECONDS=86400
 export PGDR_ARCHIVE_TIMEOUT_SECONDS=5
