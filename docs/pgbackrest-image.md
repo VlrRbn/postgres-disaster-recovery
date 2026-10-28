@@ -10,6 +10,13 @@ Bookworm image pinned by multi-platform digest. It installs the exact PGDG packa
 `pgbackrest=2.59.1-1.pgdg12+1` without recommended packages, verifies that the
 PostgreSQL version did not change, and requires `pgBackRest 2.59.1` output.
 
+The pinned pgBackRest package comes from the official PGDG archive, which retains
+older releases removed from the current repository. The build installs Debian's
+CA bundle first, then enables the archive over HTTPS using the PGDG signing key
+already supplied by the base image. Archive priority `100` keeps current
+repositories preferred for dependencies; the exact pgBackRest version remains
+explicit in the install command.
+
 The build inherits the official entrypoint and default command. It also creates
 `/var/lib/pgbackrest` with owner `postgres` and mode `0750`, which initializes the
 permissions of a fresh repository volume. Build context
@@ -20,6 +27,12 @@ Build the interactive lab image without starting a database:
 
 ```bash
 make image
+```
+
+To check package availability without reusing an installed layer:
+
+```bash
+bash scripts/compose.sh build --no-cache postgres
 ```
 
 `make up` and `make acceptance` also build the image. Compose assigns a local
@@ -39,8 +52,9 @@ An unavailable package version fails the build instead of selecting another
 release. A PostgreSQL version change or unexpected pgBackRest version also
 fails the build.
 
-Transitive package dependencies resolve from the live Debian and PGDG APT
-repositories. Their metadata and package hashes are verified by APT, but they
+Transitive package dependencies prefer the live Debian and PGDG APT
+repositories; the archive is also available at lower priority. Repository
+metadata signatures and package hashes are verified by APT, but dependencies
 are not pinned to repository snapshots. The resulting image is locally built,
 and byte-identical rebuilds are not guaranteed. Existing Docker build cache may
 reuse a previously installed dependency set.
@@ -78,3 +92,4 @@ so that an empty restore volume cannot be mistaken for a recovered database.
 
 - [pgBackRest Installation](https://pgbackrest.org/user-guide.html#installation)
 - [PostgreSQL APT Repository](https://wiki.postgresql.org/wiki/Apt)
+- [PGDG Package Archive](https://apt-archive.postgresql.org/)

@@ -58,6 +58,16 @@ reversed roles remained. Status again showed `streaming`, TLS `t`, protocol
 
 ## Regression
 
+The first PR run failed during image construction: the live PGDG repository no
+longer provided `pgbackrest=2.59.1-1.pgdg12+1`. The Dockerfile now uses the signed
+official PGDG archive over HTTPS at lower APT priority. A fresh
+`docker build --no-cache` downloaded that exact package and passed both version
+assertions: PostgreSQL remained `17.11`, and pgBackRest remained `2.59.1`.
+With that image, `make acceptance` passed backup, isolated restore, corruption
+detection, and PITR checks. `make replication-acceptance` passed all 11 stages
+again on `postgres-dr-replication-test-1793217833-254518`; cleanup removed its
+containers, network, and volumes.
+
 `make check` passed shell syntax, ShellCheck, 67 Python test methods, all four
 Compose configurations, systemd definitions and calendars, and diff formatting.
 

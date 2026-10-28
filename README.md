@@ -46,7 +46,8 @@ full backups and health checks. Public releases follow merge and successful CI o
 
 Docker Compose builds the database image from the official PostgreSQL 17.11
 Debian Bookworm base pinned to a multi-platform digest. The Dockerfile installs
-pgBackRest `2.59.1-1.pgdg12+1` and verifies that PostgreSQL was not upgraded.
+pgBackRest `2.59.1-1.pgdg12+1` from the official PGDG package archive and verifies
+that PostgreSQL was not upgraded.
 A named volume stores the database files. Initialization enables data page
 checksums and creates the `orders` table.
 
@@ -269,7 +270,8 @@ systemd-analyze (unit validation); systemd user manager (scheduled jobs)
 ```
 
 The first build downloads the pinned PostgreSQL base and packages from the
-Debian and PostgreSQL APT repositories.
+Debian and PostgreSQL APT repositories, including the official PGDG archive for
+the pinned pgBackRest version.
 
 ## Local Commands
 
@@ -574,7 +576,8 @@ commands when explicitly installed and enabled. S3 jobs remain on demand.
 Retention is configured
 and S3 expiration is exercised with three full backups and recovery from the
 oldest retained copy. Local repository retention rollover remains untested.
-Package dependencies resolve from live APT repositories.
+Package dependencies prefer live APT repositories, with the PGDG archive available
+at lower priority. They are not pinned to repository snapshots.
 
 The current checks prove backup creation, WAL delivery, file integrity, PITR,
 and restore into a separate volume with the source stopped. A controlled primary
