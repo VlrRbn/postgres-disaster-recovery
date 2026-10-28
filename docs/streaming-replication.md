@@ -146,22 +146,25 @@ when finished. Named volumes, local secrets, images, and build cache remain.
 
 The dedicated `replicator` role has `LOGIN` and `REPLICATION`, without superuser,
 database creation, or role creation privileges. A replication-specific HBA rule
-requires SCRAM authentication from the connected network. Startup copies the
+requires TLS and SCRAM authentication from the connected network. Startup copies the
 replication secret into a PostgreSQL-owned private file for primary initialization
 and into a `0600` password file on the standby. Connection settings reference
 that password file; passwords are not embedded in `primary_conninfo`.
 
 The two database services have separate named volumes and an internal Docker
-network, with no published host ports. The local replication stream uses no TLS.
-Both containers share a Docker host, so the deployment has no host-failure
-tolerance. Archiving is off in this separate runtime.
+network, with no published host ports. Base backup and WAL streaming require
+`sslmode=verify-full`, using a private runtime CA and separate server identities.
+TLS files are generated automatically and kept outside the database volumes.
+See [replication TLS](replication-tls.md) for trust, expiry, existing-volume startup,
+and replacement. Both containers still share a Docker host, so the deployment
+has no host-failure tolerance. Archiving is off in this separate runtime.
 
 Streaming also copies accidental deletes and other unwanted committed changes.
 Keep the existing backup/PITR workflow for recovery to an earlier state.
 
 The standby entrypoint seeds only an empty target. It refuses a nonempty target
 without `PG_VERSION` and `standby.signal` unless the controlled promotion marker
-permits startup of the new primary. Existingbstandby volumes must belong to this primary;
+permits startup of the new primary. Existing standby volumes must belong to this primary;
 no automatic identity reconciliation or repair is attempted. Changing a password
 file does not rotate a role password inside an existing primary.
 
@@ -174,6 +177,8 @@ make replication-acceptance
 
 The disposable scenario uses a unique project and temporary secrets, then checks:
 
+- verified TLS streaming and rejection of plaintext, an untrusted CA, and a wrong server name;
+- legacy connection-setting upgrade without reseeding retained data;
 - exact ordered CSV equality for every stored field after WAL replay;
 - asynchronous streaming and a restricted replication role;
 - rejected standby writes with SQLSTATE `25006`;

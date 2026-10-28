@@ -2,6 +2,7 @@
 
 .PHONY: help stop-all
 .PHONY: alerts-setup alerts-acceptance
+.PHONY: replication-tls-setup
 .PHONY: setup check image up psql down acceptance backup-init backup-check backup backup-info backup-verify backup-health backup-health-acceptance restore restore-time restore-latest restore-up restore-psql restore-down pgadmin-up pgadmin-down pgadmin-acceptance rpo-acceptance s3-setup s3-up s3-down s3-psql s3-backup s3-info s3-check s3-health s3-acceptance s3-restore s3-restore-time s3-restore-latest s3-restore-up s3-restore-psql s3-restore-down replication-up replication-down replication-psql standby-psql replication-status replication-acceptance replication-promote replication-rejoin
 .PHONY: schedule-install schedule-start schedule-stop schedule-remove schedule-status schedule-check schedule-acceptance scheduled-backup scheduled-health
 
@@ -68,6 +69,9 @@ alerts-acceptance: ## Verify alert transitions and local TLS Telegram/SMTP fixtu
 	python3 -m unittest discover -s tests -p 'test_backup_alerts.py' -v
 
 ##@ Replication
+replication-tls-setup: ## Generate or validate private CA and node certificates; preserve existing keys
+	bash scripts/setup.sh replication-tls
+
 replication-up: ## Start or resume the replication topology using saved roles
 	bash scripts/replication.sh up
 

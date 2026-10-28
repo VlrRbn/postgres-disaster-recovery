@@ -6,6 +6,60 @@ root=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
 schedule_units=(postgres-dr-backup.service postgres-dr-backup.timer
     postgres-dr-backup-health.service postgres-dr-backup-health.timer)
 
+validate_replication_tls() {
+    local tls=$1 name mode certificate_key private_key
+    for name in ca primary standby; do
+        [[ -s "$tls/$name.crt" && -s "$tls/$name.key" &&
+           ! -L "$tls/$name.crt" && ! -L "$tls/$name.key" && -O "$tls/$name.key" ]] || {
+            echo "Incomplete or unsafe TLS files in $tls; inspect them before retrying." >&2
+            return 1
+        }
+        mode=$(stat -c %a "$tls/$name.key")
+        (( (8#$mode & 077) == 0 )) || { echo "Private TLS key must not be group/world-readable: $name.key" >&2; return 1; }
+        certificate_key=$(openssl x509 -in "$tls/$name.crt" -pubkey -noout | openssl sha256)
+        private_key=$(openssl pkey -in "$tls/$name.key" -passin pass: -pubout | openssl sha256)
+        [[ "$certificate_key" == "$private_key" ]] || { echo "TLS key does not match $name.crt." >&2; return 1; }
+    done
+    openssl verify -check_ss_sig -CAfile "$tls/ca.crt" "$tls/ca.crt" > /dev/null
+    for name in primary standby; do
+        openssl verify -purpose sslserver -verify_hostname "$name" \
+            -CAfile "$tls/ca.crt" "$tls/$name.crt" > /dev/null
+    done
+}
+
+setup_replication_tls() (
+    umask 077
+    local directory=${PGDR_REPLICATION_DIR:-$root/.local/replication} tls work name
+    tls="$directory/tls"
+    if [[ -e "$tls" || -L "$tls" ]]; then
+        [[ -d "$tls" && ! -L "$tls" ]] || { echo 'TLS path must be a directory, not a symlink.' >&2; exit 1; }
+        validate_replication_tls "$tls"
+        echo "Existing valid replication TLS material preserved: $tls"
+        exit
+    fi
+    mkdir -p "$directory"
+    work=$(mktemp -d "$directory/.tls-XXXXXX")
+    trap 'rm -rf -- "$work"' EXIT
+    openssl req -x509 -newkey rsa:2048 -nodes -sha256 -days 365 \
+        -subj /CN=postgres-dr-replication-ca \
+        -addext 'basicConstraints=critical,CA:TRUE,pathlen:0' \
+        -addext 'keyUsage=critical,keyCertSign,cRLSign' \
+        -keyout "$work/ca.key" -out "$work/ca.crt" > /dev/null 2>&1
+    for name in primary standby; do
+        openssl req -new -newkey rsa:2048 -nodes -sha256 -subj "/CN=$name" \
+            -keyout "$work/$name.key" -out "$work/$name.csr" > /dev/null 2>&1
+        printf 'basicConstraints=critical,CA:FALSE\nkeyUsage=critical,digitalSignature,keyEncipherment\nextendedKeyUsage=serverAuth\nsubjectAltName=DNS:%s\n' "$name" > "$work/extensions"
+        openssl x509 -req -sha256 -days 90 -in "$work/$name.csr" \
+            -CA "$work/ca.crt" -CAkey "$work/ca.key" -set_serial "0x$(openssl rand -hex 16)" \
+            -extfile "$work/extensions" -out "$work/$name.crt" > /dev/null 2>&1
+        rm -- "$work/$name.csr"
+    done
+    rm -- "$work/extensions"
+    validate_replication_tls "$work"
+    mv -T -- "$work" "$tls"
+    echo "Private replication CA and 90-day node certificates generated: $tls"
+)
+
 stop_schedule() {
     local unit_dir=${XDG_CONFIG_HOME:-$HOME/.config}/systemd/user unit
     local timers=()
@@ -103,7 +157,7 @@ select_secret_file() {
             ;;
         pgadmin) secret_file=${PGDR_PGADMIN_SECRET_FILE:-$root/.local/pgadmin_password} ;;
         replication) secret_file=${PGDR_REPLICATION_DIR:-$root/.local/replication}/replication_password ;;
-        *) echo 'Usage: setup.sh [postgres|pgadmin|replication]' >&2; exit 2 ;;
+        *) echo 'Usage: setup.sh [postgres|pgadmin|replication|replication-tls]' >&2; exit 2 ;;
     esac
 }
 
@@ -131,6 +185,7 @@ PY
 
 # Select the runtime's password file, then create it only when absent.
 case "${1:-}" in
+    replication-tls) setup_replication_tls; exit ;;
     schedule) install_schedule; exit ;;
     schedule-stop) stop_schedule; exit ;;
     schedule-idle) require_schedule_idle; exit ;;

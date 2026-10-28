@@ -2,10 +2,26 @@
 set -euo pipefail
 
 control=/var/lib/pgdr-control
+tls=/var/lib/postgresql/tls
+tls_options=(-c ssl=on -c "ssl_cert_file=$tls/server.crt" -c "ssl_key_file=$tls/server.key"
+    -c ssl_min_protocol_version=TLSv1.2 -c "hba_file=$tls/pg_hba.conf")
 die() { echo "$*" >&2; exit 1; }
 
 prepare_container() {
     install -d -o postgres -g postgres -m 0700 "$control"
+    install -d -o postgres -g postgres -m 0700 "$tls"
+    install -o postgres -g postgres -m 0600 /run/secrets/replication_key "$tls/server.key"
+    install -o postgres -g postgres -m 0644 /run/secrets/replication_cert "$tls/server.crt"
+    install -o postgres -g postgres -m 0644 /run/secrets/replication_ca "$tls/ca.crt"
+    # Keep managed authentication outside PGDATA, including upgraded and rewound volumes.
+    cat > "$tls/pg_hba.conf" <<'HBA'
+local all all trust
+hostssl replication replicator samenet scram-sha-256
+host replication all all reject
+host all all all reject
+HBA
+    chown postgres:postgres "$tls/pg_hba.conf"
+    chmod 0600 "$tls/pg_hba.conf"
 }
 
 topology() {
@@ -26,7 +42,6 @@ BEGIN
 END $$;
 SELECT pg_create_physical_replication_slot('standby', true);
 SQL
-    printf '\nhost replication replicator samenet scram-sha-256\n' >> "$PGDATA/pg_hba.conf"
     rm /var/lib/postgresql/.replication_password
 }
 
@@ -40,7 +55,20 @@ start_primary() {
     [[ ! -f "$PGDATA/standby.signal" ]] || die 'Unexpected standby data on the original primary; inspect the control volume.'
     install -o postgres -g postgres -m 0600 /run/secrets/replication_password \
         /var/lib/postgresql/.replication_password
-    exec /usr/local/bin/docker-entrypoint.sh "$@"
+    exec /usr/local/bin/docker-entrypoint.sh "$@" "${tls_options[@]}"
+}
+
+configure_recovery_connection() {
+    local node=${PGDR_NODE:-standby} upstream=primary
+    if [[ "$node" == primary ]]; then upstream=standby; fi
+    # Replace legacy sslmode=disable settings without accumulating duplicate overrides.
+    sed -i -E '/^[[:space:]]*(primary_conninfo|primary_slot_name|recovery_target_timeline)[[:space:]]*=/d' \
+        "$PGDATA/postgresql.auto.conf"
+    cat >> "$PGDATA/postgresql.auto.conf" <<CONF
+primary_conninfo = 'host=$upstream user=replicator application_name=$node passfile=/var/lib/postgresql/.pgpass connect_timeout=5 sslmode=verify-full sslrootcert=$tls/ca.crt'
+primary_slot_name = '$node'
+recovery_target_timeline = 'latest'
+CONF
 }
 
 start_standby() {
@@ -65,20 +93,21 @@ start_standby() {
     fi
     if [[ -z $(ls -A "$PGDATA") ]]; then
         echo 'Seeding the empty standby volume from primary with pg_basebackup.'
-        pg_basebackup --dbname='host=primary user=replicator application_name=standby passfile=/var/lib/postgresql/.pgpass connect_timeout=5 sslmode=disable' \
+        pg_basebackup --dbname="host=primary user=replicator application_name=standby passfile=/var/lib/postgresql/.pgpass connect_timeout=5 sslmode=verify-full sslrootcert=$tls/ca.crt" \
             --pgdata="$PGDATA" --wal-method=stream --write-recovery-conf \
             --slot=standby --checkpoint=fast --no-password
     elif [[ ! -s "$PGDATA/PG_VERSION" || ! -f "$PGDATA/standby.signal" ]]; then
         echo 'Standby target is nonempty but is not a seeded standby; refusing to overwrite or initialize it.' >&2
         exit 1
     fi
+    configure_recovery_connection
     run_postgres
 }
 
 run_postgres() {
     exec postgres -D "$PGDATA" -c archive_mode=off -c hot_standby=on \
         -c wal_level=replica -c max_wal_senders=4 -c max_replication_slots=1 \
-        -c max_slot_wal_keep_size=256MB -c wal_keep_size=64MB
+        -c max_slot_wal_keep_size=256MB -c wal_keep_size=64MB "${tls_options[@]}"
 }
 
 rewind_primary() {
@@ -87,11 +116,7 @@ rewind_primary() {
     local source=/var/lib/postgresql/rewind-source
     pg_rewind --target-pgdata="$PGDATA" --source-pgdata="$source" --no-ensure-shutdown --dry-run
     pg_rewind --target-pgdata="$PGDATA" --source-pgdata="$source" --no-ensure-shutdown
-    cat >> "$PGDATA/postgresql.auto.conf" <<'CONF'
-primary_conninfo = 'host=standby user=replicator application_name=primary passfile=/var/lib/postgresql/.pgpass connect_timeout=5 sslmode=disable'
-primary_slot_name = 'primary'
-recovery_target_timeline = 'latest'
-CONF
+    configure_recovery_connection
     touch "$PGDATA/standby.signal"
 }
 
@@ -147,6 +172,7 @@ start_cluster() {
     PGDR_SECRET_FILE="$PGDR_REPLICATION_DIR/postgres_password" PGDR_REPOSITORY=local \
         bash "$root/scripts/setup.sh"
     bash "$root/scripts/setup.sh" replication
+    bash "$root/scripts/setup.sh" replication-tls
     "${compose[@]}" build
     case "$(read_topology)" in
         initial) "${compose[@]}" up --no-build --detach --wait --wait-timeout 180 ;;
@@ -225,15 +251,17 @@ show_status() {
                 pg_is_in_recovery() AS "In recovery",
                 pg_last_wal_replay_lsn() AS "Last replayed WAL (LSN)";'
             echo 'WAL receiver: connection from this standby to its upstream primary'
-            sql "$node" -c 'SELECT status AS "Connection", slot_name AS "Slot"
+            sql "$node" -c 'SELECT status AS "Connection", slot_name AS "Slot",
+                current_setting('\''primary_conninfo'\'') ~ '\''sslmode=verify-full'\'' AS "Verify server identity"
                 FROM pg_stat_wal_receiver;'
         else
             printf '\nService: %s | Role: PRIMARY (read/write)\n' "$node"
             echo 'WAL sender: standbys receiving changes from this primary'
             sql "$node" -P null=unknown -c 'SELECT
-                application_name AS "Standby", state AS "Connection", sync_state AS "Mode",
+                r.application_name AS "Standby", r.state AS "Connection", r.sync_state AS "Mode",
                 pg_wal_lsn_diff(pg_current_wal_lsn(), replay_lsn) AS "Replay lag (bytes)"
-                FROM pg_stat_replication;'
+                , s.ssl AS "TLS", s.version AS "Protocol", s.cipher AS "Cipher"
+                FROM pg_stat_replication AS r LEFT JOIN pg_stat_ssl AS s USING (pid);'
             echo 'Replication slots: WAL kept for replicas, including disconnected ones'
             sql "$node" -P null=unknown -c 'SELECT slot_name AS "Slot", active AS "In use",
                 wal_status AS "WAL retention",
@@ -244,6 +272,7 @@ show_status() {
     printf '\nLegend: t = yes; f = no; streaming = connected; async = commits do not wait for standby replay.\n'
     echo 'Replay lag uses the last position reported by the standby; unknown = no value is available.'
     echo 'No rows in a WAL sender/receiver table = no replication connection was observed.'
+    echo 'TLS = encrypted connection; Verify server identity = receiver configured to verify its CA and hostname.'
 }
 
 open_sql() {

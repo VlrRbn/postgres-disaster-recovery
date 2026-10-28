@@ -3,8 +3,8 @@
 A PostgreSQL disaster recovery and replication project built in verifiable
 milestones. It combines a digest-pinned database image, WAL archiving, physical
 backups, PITR, recovery measurement, AWS S3 storage, clean-host EC2 recovery,
-streaming replication, controlled switchover with replica rejoin, and optional
-scheduled backups and health checks, and optional Telegram/email alerting.
+streaming replication with verified TLS, controlled switchover with replica
+rejoin, optional scheduled backups and health checks, and Telegram/email alerting.
 
 ## Project Status
 
@@ -21,7 +21,8 @@ Capability milestones include local Docker runtimes and verified AWS recovery:
 | [v0.7.0](https://github.com/VlrRbn/postgres-disaster-recovery/releases/tag/v0.7.0) | Streaming Replication | Released |
 | [v0.8.0](https://github.com/VlrRbn/postgres-disaster-recovery/releases/tag/v0.8.0) | Controlled Switchover And Rejoin | Released |
 | [v0.9.0](https://github.com/VlrRbn/postgres-disaster-recovery/releases/tag/v0.9.0) | Scheduled Backups And Health Checks | Released |
-| `v0.10.0` | Backup Alerting | Local and live delivery checks passed |
+| [v0.10.0](https://github.com/VlrRbn/postgres-disaster-recovery/releases/tag/v0.10.0) | Backup Alerting | Released |
+| `v0.11.0` | TLS For Streaming Replication | Local acceptance passed |
 
 ```text
 empty database volume
@@ -45,7 +46,8 @@ full backups and health checks. Public releases follow merge and successful CI o
 
 Docker Compose builds the database image from the official PostgreSQL 17.11
 Debian Bookworm base pinned to a multi-platform digest. The Dockerfile installs
-pgBackRest `2.59.1-1.pgdg12+1` and verifies that PostgreSQL was not upgraded.
+pgBackRest `2.59.1-1.pgdg12+1` from the official PGDG package archive and verifies
+that PostgreSQL was not upgraded.
 A named volume stores the database files. Initialization enables data page
 checksums and creates the `orders` table.
 
@@ -218,6 +220,13 @@ a read-only replica. Startup and SQL commands follow the resulting roles.
 See [controlled switchover and rejoin](docs/controlled-switchover.md) for the
 required client pause, brief rejoin outage, guards, and failure handling.
 
+The replication runtime now requires verified TLS for base backup and WAL streaming.
+Startup generates or preserves a private CA and distinct node certificates;
+plaintext replication is rejected. Existing standby connection settings are upgraded
+without reseeding. Status includes negotiated TLS protocol and cipher, including
+after rejoin. See [replication TLS](docs/replication-tls.md) for trust files,
+existing-volume startup, expiry, replacement, and negative checks.
+
 ## Security Defaults
 
 - official PostgreSQL base image pinned to an immutable digest;
@@ -261,7 +270,8 @@ systemd-analyze (unit validation); systemd user manager (scheduled jobs)
 ```
 
 The first build downloads the pinned PostgreSQL base and packages from the
-Debian and PostgreSQL APT repositories.
+Debian and PostgreSQL APT repositories, including the official PGDG archive for
+the pinned pgBackRest version.
 
 ## Local Commands
 
@@ -288,13 +298,14 @@ Resume the required runtime with `make up`, `make s3-up`, or
 | `make help` | List commands grouped by purpose; also the default `make` action | No services started |
 | `make stop-all` | Disable installed project timers and stop running project containers from this checkout | Containers, networks, volumes, secrets, and backups retained |
 | `make check` | Check shell scripts, Compose configuration, and diff formatting | No database is started |
-| `make replication-up` | Generate separate passwords, start a primary, seed or resume its standby | Two databases running in a separate Compose project |
-| `make replication-status` | Show sender, receiver, slot and replay state | Databases stay running |
+| `make replication-up` | Generate passwords/TLS identities and start or resume the saved topology | Two databases running in a separate Compose project |
+| `make replication-tls-setup` | Generate or validate the private CA and node certificates | Existing valid keys preserved; no databases started |
+| `make replication-status` | Show roles, sender/receiver, TLS protocol/cipher, slots and replay state | Databases stay running |
 | `make replication-promote` | With writers stopped, fence the original primary and promote the caught-up standby | Original primary stopped; promoted node writable |
 | `make replication-rejoin` | Briefly stop the new primary and run offline `pg_rewind` to rejoin the original primary | Roles reversed; original primary read-only |
 | `make replication-psql` / `make standby-psql` | Open SQL on the replication primary or standby | Databases stay running after `\q` |
 | `make replication-down` | Remove replication containers and network | Both database volumes, control volume, and passwords retained |
-| `make replication-acceptance` | Verify streaming, read-only standby, outages and persistence | Disposable project removed; images and build cache retained |
+| `make replication-acceptance` | Verify TLS, rejected insecure connections, streaming, outages, switchover and rejoin | Disposable project removed; images and build cache retained |
 | `make image` | Build the PostgreSQL image with pgBackRest | Local image and build cache; no database is started |
 | `make up` | Generate or reuse the password, build and start PostgreSQL, initialize the repository, and check WAL archiving | Database running with initialized backup storage; no backup yet on first startup |
 | `make psql` | Open a SQL session in the running database | Database stays running when the session closes |
@@ -533,7 +544,8 @@ Its own containers, network, three volumes, and temporary secrets are removed.
 | Asynchronous streaming and read-only standby | Released in `v0.7.0` |
 | Controlled switchover, saved fencing, and replica rejoin | Released in `v0.8.0` |
 | Scheduled local full backups and health checks | Released in `v0.9.0` |
-| Telegram and email backup alerts | `v0.10.0`: local and live delivery checks passed |
+| Telegram and email backup alerts | Released in `v0.10.0` |
+| Verified TLS for streaming replication | `v0.11.0`: local acceptance passed |
 
 See the [delivery roadmap](docs/roadmap.md) for milestone scope,
 [contribution guidelines](CONTRIBUTING.md) for the PR workflow, and
@@ -564,7 +576,8 @@ commands when explicitly installed and enabled. S3 jobs remain on demand.
 Retention is configured
 and S3 expiration is exercised with three full backups and recovery from the
 oldest retained copy. Local repository retention rollover remains untested.
-Package dependencies resolve from live APT repositories.
+Package dependencies prefer live APT repositories, with the PGDG archive available
+at lower priority. They are not pinned to repository snapshots.
 
 The current checks prove backup creation, WAL delivery, file integrity, PITR,
 and restore into a separate volume with the source stopped. A controlled primary
@@ -580,7 +593,8 @@ availability, and host uptime govern execution; lingering is an explicit operato
 choice.
 
 The replication runtime also shares one Docker host and uses asynchronous WAL
-without TLS. Controlled switchover requires paused writers and a reachable source;
+over verified TLS with a local CA. It has no automated certificate renewal or
+managed PKI. Controlled switchover requires paused writers and a reachable source;
 rejoin briefly stops the new primary. Its saved startup guards provide local
 workflow fencing. Distributed fencing, automatic failover, application traffic
 routing, and reverse switchover are not implemented.

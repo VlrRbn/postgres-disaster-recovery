@@ -35,11 +35,21 @@ a documented runtime procedure changes.
 - Reuse existing scripts and local helpers. Validate behavior with the relevant
   disposable acceptance scenarios when restructuring an operational command.
 
+## Documentation
+
+When a command changes, update its guide and examples. Show the expected result
+and explain what shutdown or cleanup removes and retains.
+
+For a new milestone, use the existing
+[acceptance reports](evidence/controlled-switchover-acceptance-20261016.md) and
+[release notes](docs/releases/v0.10.0.md) as examples. Record what was checked,
+what happened, and what remains unverified.
+
 ## Pull Requests
 
-Describe the resulting behavior, the reason for the change, and the validation
-performed. Include evidence when changing database persistence or recovery
-behavior. CI must pass before merge.
+Use the [PR template](.github/pull_request_template.md) to describe the change,
+why it is needed, and how it was checked. Include evidence when changing database
+persistence or recovery behavior. CI must pass before merge.
 
 Update the capability status only when its acceptance criteria have been
 verified. Keep future work in the roadmap and distinguish local validation
