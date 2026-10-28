@@ -97,7 +97,7 @@ simulate_archive_outage_and_crash() {
 verify_recovered_data() {
     step 4 "Restore archived data and verify exact acknowledged rows"
     python3 "$root/scripts/recovery_report.py" stamp "$work/restore-start.json"
-    BACKUP_LABEL="$label" bash "$root/scripts/restore.sh" latest
+    BACKUP_LABEL="$label" bash "$root/scripts/restore.sh" latest-wal
     [[ $(restore_sql -Atc 'SELECT pg_is_in_recovery();') == f ]]
     [[ $(restore_sql -Atc 'SHOW archive_mode;') == off ]]
     snapshot='COPY (SELECT id, reference, amount_cents, created_at FROM orders ORDER BY id) TO STDOUT WITH CSV;'

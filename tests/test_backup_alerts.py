@@ -209,7 +209,7 @@ class AlertStateTests(unittest.TestCase):
         self.addCleanup(lock.unlink, missing_ok=True)
         env = dict(os.environ, PGDR_PROJECT=project, PGDR_REPOSITORY='local',
                    PGDR_S3_FIXTURE='0', PATH=f'{bin_dir}:{os.environ["PATH"]}')
-        result = subprocess.run(['bash', str(alerts.ROOT / 'scripts/backup.sh'), 'scheduled-health'],
+        result = subprocess.run(['bash', str(alerts.ROOT / 'scripts/backup.sh'), 'scheduled-backup-health'],
                                 env=env, capture_output=True, text=True, timeout=5)
         self.assertEqual(result.returncode, 1, result.stderr)
         self.assertEqual(json.loads(result.stdout), {'status': 'unhealthy'})

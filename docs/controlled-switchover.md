@@ -29,9 +29,9 @@ zero-loss guarantee during an uncontrolled failure.
 With writers stopped, run from the repository root:
 
 ```bash
-make replication-promote
+make replication-switchover
 make replication-status
-make replication-psql
+make replication-primary-psql
 ```
 
 The command captures the original primary's flushed WAL position and waits up
@@ -59,8 +59,8 @@ while their PostgreSQL roles change:
 | After promotion | Stopped and fenced | Writable primary |
 | After rejoin | Read-only standby | Writable primary |
 
-`make replication-psql` connects to the unique running writable node;
-`make standby-psql` connects to the unique running node in recovery. Each refuses
+`make replication-primary-psql` connects to the unique running writable node;
+`make replication-standby-psql` connects to the unique running node in recovery. Each refuses
 an ambiguous or missing role. `make replication-status` reports the observed role
 of each service, including stopped nodes. There is no application proxy or stable
 network endpoint that automatically follows the writable role.
@@ -72,7 +72,7 @@ Stop application writers again, then run:
 ```bash
 make replication-rejoin
 make replication-status
-make standby-psql
+make replication-standby-psql
 ```
 
 Rejoin requires the promoted node to be running and writable and the original
@@ -136,7 +136,7 @@ this lock does not coordinate different hosts or independent checkouts.
 - Paused WAL replay or a missing required node rejects promotion before fencing.
 - If interruption occurs after fencing but before promotion completes, the old
   primary stays blocked on startup. Inspect status and rerun
-  `make replication-promote` with the standby running to use the saved target.
+  `make replication-switchover` with the standby running to use the saved target.
 - If the standby is already writable, promotion refuses to repeat. Continue with
   rejoin after checking status and the fence.
 - If rewind fails, the command attempts to resume the new primary and leaves

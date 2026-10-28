@@ -62,7 +62,7 @@ the server identity. No rows means no replication connection was observed.
 For a direct view before switchover:
 
 ```bash
-make replication-psql
+make replication-primary-psql
 ```
 
 ```sql

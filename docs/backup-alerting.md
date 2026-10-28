@@ -121,7 +121,7 @@ The delivery result records server acceptance, not an inbox receipt. See
 
 ## Failure And Recovery Behavior
 
-The existing `make scheduled-backup` and `make scheduled-health` commands invoke
+The existing `make scheduled-backup` and `make scheduled-backup-health` commands invoke
 the notifier after their job finishes, including a lock-contention failure.
 Installed systemd services already use these entrypoints. Direct `make backup`
 and `make backup-health` remain on-demand operations without notifications.
@@ -173,23 +173,23 @@ After configuring real recipients, an operator can exercise delivery with timers
 disabled. These commands deliberately send notifications to the enabled channels:
 
 ```bash
-make schedule-stop
+make schedule-disable
 make down
-make scheduled-health
+make scheduled-backup-health
 # Expected: unhealthy JSON, FAILED notifications, and a nonzero command result.
-make scheduled-health
+make scheduled-backup-health
 # Expected: continued failure, without repeating accepted FAILED messages.
 make up
-make scheduled-health
+make scheduled-backup-health
 # Expected: healthy JSON and RECOVERED notifications.
-make scheduled-health
+make scheduled-backup-health
 # Expected: no additional recovery messages.
 ```
 
 For service execution, use the same health service and journal commands described
 in [backup scheduling](backup-scheduling.md). Disable either JSON channel with
 `"enabled": false`; disabling both stops external delivery without deleting state.
-`make schedule-stop` disables future timer activations; `make stop-all` also stops
+`make schedule-disable` disables future timer activations; `make stop-all` also stops
 the checkout's running project containers while retaining data. Neither command
 deletes alert configuration or history. The local config is a file secret, not
 an encrypted secret manager.

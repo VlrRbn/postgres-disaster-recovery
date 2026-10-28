@@ -185,7 +185,7 @@ start_cluster() {
     esac
 }
 
-promote_standby() {
+perform_switchover() {
     local state target container
     state=$(read_topology)
     [[ "$state" != rejoined ]] || die 'This project has already switched roles; reverse switchover is not supported.'
@@ -292,7 +292,7 @@ open_sql() {
 
 # Serialize topology changes in this checkout. SQL clients must be stopped by the operator.
 case "${1:-}" in
-    up|promote|rejoin)
+    up|switchover|rejoin)
         project=${PGDR_REPLICATION_PROJECT:-postgres-dr-replication}
         [[ "$project" =~ ^postgres-dr-replication($|-[a-z0-9-]+$) ]] || die 'Invalid replication project.'
         mkdir -p "$root/.local/replication-locks"
@@ -308,9 +308,9 @@ case "${1:-}" in
     status)
         show_status
         ;;
-    promote) promote_standby ;;
+    switchover) perform_switchover ;;
     rejoin) rejoin_primary ;;
     primary-psql) shift; open_sql primary "$@" ;;
     standby-psql) shift; open_sql standby "$@" ;;
-    *) echo 'Usage: replication.sh up|status|promote|rejoin|primary-psql|standby-psql' >&2; exit 2 ;;
+    *) echo 'Usage: replication.sh up|status|switchover|rejoin|primary-psql|standby-psql' >&2; exit 2 ;;
 esac

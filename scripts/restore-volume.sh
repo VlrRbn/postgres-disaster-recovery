@@ -9,7 +9,7 @@ fi
 
 # Select the recovery boundary: backup consistency, latest WAL, or UTC time.
 recovery_args=(--type=immediate --target-action=promote)
-if (( $# == 2 )) && [[ "$2" == latest ]]; then
+if (( $# == 2 )) && [[ "$2" == latest-wal ]]; then
     recovery_args=(--type=default --target-timeline=current)
 elif (( $# == 2 )); then
     if [[ ! "$2" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}\ [0-9]{2}:[0-9]{2}:[0-9]{2}(\.[0-9]{1,6})?\+00:00$ ]] ||

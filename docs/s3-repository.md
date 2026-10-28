@@ -84,8 +84,8 @@ repository's terminal:
 
 ```bash
 make s3-backup
-make s3-info
-make s3-health
+make s3-backup-info
+make s3-backup-health
 ```
 
 The default S3 project is `postgres-dr-s3`, with its own `pgdata` volume.
@@ -141,18 +141,18 @@ With the S3 primary running:
 
 ```bash
 make s3-backup
-make s3-info
-make s3-check
-make s3-health
+make s3-backup-info
+make s3-backup-check
+make s3-backup-health
 make s3-down
 ```
 
 | Command | Result |
 | --- | --- |
 | `make s3-backup` | Check current WAL delivery, create a full S3 backup, and require a healthy integrity report |
-| `make s3-info` | Display labels and archive ranges from S3 metadata |
-| `make s3-check` | Force a WAL switch and wait for archive delivery to S3 |
-| `make s3-health` | JSON backup-age and active archive-delivery report using the existing health contract |
+| `make s3-backup-info` | Display labels and archive ranges from S3 metadata |
+| `make s3-backup-check` | Force a WAL switch and wait for archive delivery to S3 |
+| `make s3-backup-health` | JSON backup-age and active archive-delivery report using the existing health contract |
 | `make s3-down` | Remove S3 lab containers and networks; retain its database volume, passwords, and S3 objects |
 
 pgBackRest writes below `postgres-dr/orders/` by default. Bundling combines small

@@ -5,7 +5,7 @@ Description=PostgreSQL backup freshness and active WAL delivery check
 Type=oneshot
 Environment=PATH=/usr/local/bin:/usr/bin:/bin
 EnvironmentFile=%E/postgres-dr/schedule.env
-ExecStart=/usr/bin/make --no-print-directory --directory=${PGDR_ROOT} scheduled-health
+ExecStart=/usr/bin/make --no-print-directory --directory=${PGDR_ROOT} scheduled-backup-health
 TimeoutStartSec=10min
 UMask=0077
 StandardOutput=journal
