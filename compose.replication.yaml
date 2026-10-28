@@ -12,7 +12,14 @@ services:
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD_FILE: /run/secrets/postgres_password
       POSTGRES_INITDB_ARGS: --data-checksums
-    secrets: [postgres_password, replication_password]
+    secrets:
+      - postgres_password
+      - replication_password
+      - replication_ca
+      - source: primary_tls_cert
+        target: replication_cert
+      - source: primary_tls_key
+        target: replication_key
     volumes:
       - primary_data:/var/lib/postgresql/data
       - replication_control:/var/lib/pgdr-control
@@ -20,7 +27,7 @@ services:
       - ./scripts/replication.sh:/docker-entrypoint-initdb.d/002-replication.sh:ro
       - ./sql/001-orders.sql:/docker-entrypoint-initdb.d/001-orders.sql:ro
     healthcheck:
-      test: [CMD-SHELL, 'pg_isready -h 127.0.0.1 -U postgres -d orders']
+      test: [CMD-SHELL, 'pg_isready -U postgres -d orders']
       interval: 2s
       timeout: 3s
       retries: 60
@@ -37,7 +44,13 @@ services:
     environment:
       PGDATA: /var/lib/postgresql/data
       PGDR_NODE: standby
-    secrets: [replication_password]
+    secrets:
+      - replication_password
+      - replication_ca
+      - source: standby_tls_cert
+        target: replication_cert
+      - source: standby_tls_key
+        target: replication_key
     volumes:
       - standby_data:/var/lib/postgresql/data
       - replication_control:/var/lib/pgdr-control
@@ -68,6 +81,16 @@ secrets:
     file: ${PGDR_REPLICATION_DIR:-./.local/replication}/postgres_password
   replication_password:
     file: ${PGDR_REPLICATION_DIR:-./.local/replication}/replication_password
+  replication_ca:
+    file: ${PGDR_REPLICATION_DIR:-./.local/replication}/tls/ca.crt
+  primary_tls_cert:
+    file: ${PGDR_REPLICATION_DIR:-./.local/replication}/tls/primary.crt
+  primary_tls_key:
+    file: ${PGDR_REPLICATION_DIR:-./.local/replication}/tls/primary.key
+  standby_tls_cert:
+    file: ${PGDR_REPLICATION_DIR:-./.local/replication}/tls/standby.crt
+  standby_tls_key:
+    file: ${PGDR_REPLICATION_DIR:-./.local/replication}/tls/standby.key
 
 volumes:
   primary_data:

@@ -15,6 +15,7 @@ cleanup() {
         "${compose[@]}" logs --no-color >&2 || true
     fi
     if "${compose[@]}" down --volumes --remove-orphans; then
+        rm -f -- "$root/.local/replication-locks/$PGDR_REPLICATION_PROJECT.lock"
         rm -rf -- "$work"
     else
         echo "Cleanup failed for $PGDR_REPLICATION_PROJECT; secrets retained at $work." >&2
@@ -32,7 +33,7 @@ sql() {
     "${compose[@]}" exec -T --user postgres "$service" \
         psql -X -v ON_ERROR_STOP=1 -U postgres -d orders "$@"
 }
-step() { printf '\n[%s/10] %s\n' "$1" "$2"; }
+step() { printf '\n[%s/11] %s\n' "$1" "$2"; }
 
 wait_for_replay() {
     local source=${1:-primary} replica=${2:-standby} target deadline=$((SECONDS + 60))
@@ -65,6 +66,20 @@ expect_failure() {
     grep -q "$message" "$work/rejected.log"
 }
 
+assert_tls() {
+    local source=${1:-primary} replica=${2:-standby}
+    [[ $(sql "$source" -Atc "SELECT count(*) FROM pg_stat_replication AS r
+        JOIN pg_stat_ssl AS s USING (pid) WHERE r.application_name = '$replica'
+        AND r.state = 'streaming' AND s.ssl AND s.version IN ('TLSv1.2', 'TLSv1.3');") == 1 ]]
+    [[ $(sql "$replica" -Atc "SELECT current_setting('primary_conninfo') ~ 'sslmode=verify-full'
+        AND current_setting('primary_conninfo') ~ 'sslrootcert=/var/lib/postgresql/tls/ca.crt';") == t ]]
+}
+
+replication_query() {
+    "${compose[@]}" exec -T --user postgres standby psql -X --no-password \
+        --dbname="$1" -Atc 'IDENTIFY_SYSTEM;'
+}
+
 verify_streaming() {
     step 1 'Start an isolated primary and seed the standby'
     bash "$root/scripts/replication.sh" up
@@ -80,8 +95,40 @@ verify_streaming() {
     [[ $(sql primary -Atc "SELECT setting FROM pg_settings WHERE name = 'max_slot_wal_keep_size';") == 256 ]]
 }
 
+verify_tls_guards() {
+    step 2 'Verify encrypted streaming; reject plaintext, an untrusted CA and the wrong server name'
+    local base container address node other mounts
+    base='host=primary user=replicator dbname=replication replication=true passfile=/var/lib/postgresql/.pgpass connect_timeout=5'
+    assert_tls
+    replication_query "$base sslmode=verify-full sslrootcert=/var/lib/postgresql/tls/ca.crt" > /dev/null
+    expect_failure 'no encryption' replication_query "$base sslmode=disable"
+    openssl req -x509 -newkey rsa:2048 -nodes -days 1 -subj /CN=untrusted-test-ca \
+        -keyout "$work/untrusted.key" -out "$work/untrusted.crt" > /dev/null 2>&1
+    chmod 0644 "$work/untrusted.crt"
+    "${compose[@]}" cp "$work/untrusted.crt" standby:/tmp/untrusted-ca.crt
+    expect_failure 'certificate verify failed' replication_query \
+        "$base sslmode=verify-full sslrootcert=/tmp/untrusted-ca.crt"
+    container=$("${compose[@]}" ps --quiet primary)
+    address=$(docker inspect "$container" --format '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}')
+    expect_failure 'does not match host name' replication_query \
+        "host=wrong-name.invalid hostaddr=$address user=replicator dbname=replication replication=true connect_timeout=5 sslmode=verify-full sslrootcert=/var/lib/postgresql/tls/ca.crt"
+    for node in primary standby; do
+        other=primary
+        if [[ "$node" == primary ]]; then other=standby; fi
+        container=$("${compose[@]}" ps --quiet "$node")
+        mounts=$(docker inspect "$container" --format '{{range .Mounts}}{{println .Source}}{{end}}')
+        if grep -Fxq "$work/tls/ca.key" <<< "$mounts" || grep -Fxq "$work/tls/$other.key" <<< "$mounts"; then
+            echo "Node $node received an unrelated private key." >&2
+            exit 1
+        fi
+        [[ $("${compose[@]}" exec -T --user postgres "$node" stat -c %a /var/lib/postgresql/tls/server.key) == 600 ]]
+        [[ $(sql "$node" -Atc 'SHOW hba_file;') == /var/lib/postgresql/tls/pg_hba.conf ]]
+    done
+    echo 'PASS: verified TLS streaming; plaintext, untrusted CA and hostname mismatch rejected.'
+}
+
 verify_read_only() {
-    step 2 'Reject writes on the standby with SQLSTATE 25006'
+    step 3 'Reject writes on the standby with SQLSTATE 25006'
     if sql standby -v VERBOSITY=verbose -c "INSERT INTO orders (reference, amount_cents)
         VALUES ('standby-write-must-fail', 100);" > "$work/read-only.log" 2>&1; then
         echo 'Standby unexpectedly accepted a write.' >&2
@@ -91,26 +138,31 @@ verify_read_only() {
 }
 
 verify_standby_catchup() {
-    step 3 'Retain WAL while the standby is stopped, then replay the missing writes'
+    step 4 'Upgrade legacy connection settings on a retained standby and replay the missing writes'
     "${compose[@]}" stop standby
     sql primary -c "INSERT INTO orders (reference, amount_cents) VALUES ('during-standby-outage', 2100);"
     [[ $(sql primary -Atc "SELECT NOT active FROM pg_replication_slots WHERE slot_name = 'standby';") == t ]]
+    # Simulate an existing pre-TLS standby; startup must upgrade it without reseeding.
+    "${compose[@]}" run --rm --no-deps --user postgres --entrypoint bash standby \
+        -c 'sed -i "s/sslmode=verify-full/sslmode=disable/" /var/lib/postgresql/data/postgresql.auto.conf'
     "${compose[@]}" up --no-build --detach --wait --wait-timeout 120 standby
     compare_orders
+    assert_tls
 }
 
 verify_primary_outage() {
-    step 4 'Keep the standby readable during a primary outage and reconnect afterwards'
+    step 5 'Keep the standby readable during a primary outage and reconnect afterwards'
     "${compose[@]}" stop primary
     [[ $(sql standby -Atc 'SELECT count(*) FROM orders;') == 21 ]]
     [[ $(sql standby -Atc 'SELECT pg_is_in_recovery();') == t ]]
     "${compose[@]}" up --no-build --detach --wait --wait-timeout 120 primary
     sql primary -c "INSERT INTO orders (reference, amount_cents) VALUES ('after-primary-restart', 2200);"
     compare_orders
+    assert_tls
 }
 
 verify_target_guard() {
-    step 5 'Refuse a nonempty target without its standby marker'
+    step 6 'Refuse a nonempty target without its standby marker'
     "${compose[@]}" stop standby
     "${compose[@]}" run --rm --no-deps --entrypoint bash standby \
         -c 'mv /var/lib/postgresql/data/standby.signal /var/lib/postgresql/data/standby.signal.saved'
@@ -124,10 +176,11 @@ verify_target_guard() {
 }
 
 verify_recreation() {
-    step 6 'Recreate both containers on retained volumes and compare every stored field'
+    step 7 'Recreate both containers on retained volumes and compare every stored field'
     "${compose[@]}" down
     "${compose[@]}" up --no-build --detach --wait --wait-timeout 120
     compare_orders
+    assert_tls
     [[ $(sql standby -Atc 'SELECT count(*) FROM orders;') == 22 ]]
     local container
     for service in primary standby; do
@@ -139,7 +192,7 @@ verify_recreation() {
 }
 
 verify_promotion_guards() {
-    step 7 'Reject premature rejoin and promotion while WAL replay is paused'
+    step 8 'Reject premature rejoin and promotion while WAL replay is paused'
     expect_failure 'Rejoin requires a promoted standby' bash "$root/scripts/replication.sh" rejoin
     sql standby -c 'SELECT pg_wal_replay_pause();'
     expect_failure 'WAL replay is paused' bash "$root/scripts/replication.sh" promote
@@ -149,7 +202,7 @@ verify_promotion_guards() {
 }
 
 verify_promotion() {
-    step 8 'Fence the old primary, promote the standby and accept a new write'
+    step 9 'Fence the old primary, promote the standby and accept a new write'
     local old_timeline new_timeline
     old_timeline=$(sql primary -Atc 'SELECT timeline_id FROM pg_control_checkpoint();')
     bash "$root/scripts/replication.sh" promote
@@ -167,21 +220,23 @@ verify_promotion() {
 }
 
 verify_rejoin() {
-    step 9 'Rewind the old primary offline and rejoin it as a read-only standby'
+    step 10 'Rewind the old primary offline and rejoin it as a read-only standby over TLS'
     bash "$root/scripts/replication.sh" rejoin
     [[ $(sql primary -Atc 'SELECT pg_is_in_recovery();') == t ]]
     [[ $(sql primary -Atc 'SHOW primary_slot_name;') == primary ]]
     sql standby -c "INSERT INTO orders (reference, amount_cents) VALUES ('after-rejoin', 2400);"
     compare_orders standby primary
+    assert_tls standby primary
     expect_failure '25006' sql primary -v VERBOSITY=verbose \
         -c "INSERT INTO orders (reference, amount_cents) VALUES ('old-primary-write-must-fail', 100);"
 }
 
 verify_switched_recreation() {
-    step 10 'Resume the reversed topology and verify the SQL commands follow roles'
+    step 11 'Resume the reversed topology and verify TLS and SQL commands follow roles'
     "${compose[@]}" down
     bash "$root/scripts/replication.sh" up
     compare_orders standby primary
+    assert_tls standby primary
     [[ $(sql primary -Atc 'SELECT count(*) FROM orders;') == 24 ]]
     [[ $(sql primary -Atc 'SELECT pg_is_in_recovery();') == t ]]
     [[ $(sql standby -Atc 'SELECT pg_is_in_recovery();') == f ]]
@@ -193,6 +248,7 @@ verify_switched_recreation() {
 }
 
 verify_streaming
+verify_tls_guards
 verify_read_only
 verify_standby_catchup
 verify_primary_outage

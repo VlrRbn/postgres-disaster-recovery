@@ -14,7 +14,8 @@ names. Each release marks a completed and verified milestone.
 | Streaming Replication | `v0.7.0` | Released |
 | Controlled Switchover And Rejoin | `v0.8.0` | Released |
 | Scheduled Backups And Health Checks | `v0.9.0` | Released |
-| Backup Alerting | `v0.10.0` | Local and live delivery checks passed |
+| Backup Alerting | `v0.10.0` | Released |
+| TLS For Streaming Replication | `v0.11.0` | Local acceptance passed |
 
 ## Physical Backup Delivery Steps
 
@@ -109,6 +110,17 @@ partial delivery and recovery. A separate operator exercise confirmed failure
 receipt in Telegram/Gmail, suppression of repeated failures, and recovery
 acceptance by both providers. See [backup alerting](backup-alerting.md).
 
+Released in `v0.10.0` after merge and successful main CI.
+
+## Replication TLS Delivery
+
+One PR extends the existing runtime with a private CA, separate node identities,
+verified TLS for seeding and WAL streaming, and managed TLS-only replication access.
+Startup upgrades legacy standby connection settings on retained volumes.
+Acceptance rejects plaintext, an untrusted CA, and the wrong server name, then
+verifies encrypted streaming after outages, promotion, rejoin, and recreation.
+See [replication TLS](replication-tls.md).
+
 ## Acceptance Contracts
 
 - **Physical Backup And Restore:** create a pgBackRest backup, restore into
@@ -129,6 +141,8 @@ acceptance by both providers. See [backup alerting](backup-alerting.md).
   operator config, serialize jobs, create verified backups, and expose failures.
 - **Backup Alerting:** report job failure and recovery to optional Telegram/SMTP
   channels, suppress accepted repeats, and retry a failed channel independently.
+- **Replication TLS:** verify the CA and upstream name, reject insecure connections,
+  and preserve encrypted streaming through the existing topology transitions.
 
 ## Scope Rules
 

@@ -83,8 +83,10 @@ are offline throughout the rewind.
 
 The command writes `standby.signal` and connection settings pointing to service
 `standby`, using the `primary` slot and the existing private replication password
-file. It restarts the new primary, enables startup of the rewound node, and waits
-for that node to replay a captured WAL position.
+file. The connection uses `sslmode=verify-full` with the runtime CA to verify
+service `standby`; node certificates remain separate from rewound data. It restarts
+the new primary, enables startup of the rewound node, and waits for that node to
+replay a captured WAL position. See [replication TLS](replication-tls.md).
 
 ```sql
 SELECT pg_is_in_recovery(); -- true
