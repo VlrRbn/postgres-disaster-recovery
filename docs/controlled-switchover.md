@@ -151,6 +151,10 @@ They are not distributed fencing or a security boundary against a Docker
 administrator. Automatic failure detection, forced failover, external fencing,
 traffic routing, reverse switchover, and automatic reseeding are outside scope.
 
+After rejoin completes, WAL loss on the current standby can be repaired with
+[explicit reseeding](streaming-replication.md#recover-after-wal-loss). This uses
+`RESEED_NODE=primary`; it does not bypass an unfinished or failed rejoin.
+
 ## Acceptance
 
 ```bash
@@ -165,7 +169,8 @@ direct startup of the old primary to fail. Promotion state and a new write must
 survive full container removal and startup.
 
 Offline rewind then rejoins the original primary, which must reject writes.
-Both nodes must contain 24 byte-for-byte matching orders after reversed streaming
+The scenario also exercises WAL-loss reseeding before and after the role change.
+Both nodes must contain 26 byte-for-byte matching orders after reversed streaming
 and another recreation. The SQL commands must select the current roles, and
 repeated promotion must fail. Cleanup removes all three disposable volumes.
 

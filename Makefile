@@ -3,6 +3,7 @@
 .PHONY: help stop-all
 .PHONY: alerts-setup alerts-acceptance
 .PHONY: replication-tls-setup
+.PHONY: replication-reseed
 .PHONY: setup check image up psql down acceptance backup-init backup-check backup backup-info backup-verify backup-health backup-health-acceptance restore restore-time restore-latest-wal restore-up restore-psql restore-down pgadmin-up pgadmin-down pgadmin-acceptance rpo-acceptance s3-setup s3-up s3-down s3-psql s3-backup s3-backup-info s3-backup-check s3-backup-health s3-acceptance s3-restore s3-restore-time s3-restore-latest-wal s3-restore-up s3-restore-psql s3-restore-down replication-up replication-down replication-primary-psql replication-standby-psql replication-status replication-acceptance replication-switchover replication-rejoin
 .PHONY: schedule-install schedule-enable schedule-disable schedule-remove schedule-status schedule-check schedule-acceptance scheduled-backup scheduled-backup-health
 
@@ -89,6 +90,9 @@ replication-switchover: ## With writers stopped, fence the old primary and promo
 
 replication-rejoin: ## Briefly stop the new primary and rejoin the old node read-only
 	bash scripts/replication.sh rejoin
+
+replication-reseed: ## Replace the current standby after WAL loss; requires explicit RESEED_NODE
+	bash scripts/replication.sh reseed
 
 replication-status: ## Show database roles, WAL connections, replay and retained WAL
 	bash scripts/replication.sh status

@@ -156,7 +156,9 @@ The existing disposable scenario verifies:
 - upgrading legacy standby connection settings while retaining its data;
 - outage catch-up and container recreation;
 - controlled promotion, fencing, offline rejoin, and verified TLS in the reverse
-  direction with 24 exact matching orders.
+  direction;
+- explicit standby reseeding after WAL loss in both topologies, including a
+  rejected untrusted copy and retry, with 26 exact matching orders at the end.
 
 All Docker tests use a separate temporary project and remove only its resources.
 Certificate setup tests use temporary directories without Docker or user secrets.
