@@ -1,7 +1,8 @@
 # Backup Alerting Acceptance Evidence
 
-- Result: PASS for local checks and the recorded Telegram/Gmail operator exercise
+- Result: PASS for local checks and live Telegram/Gmail delivery validation
 - Date: `2026-10-23`
+- CI and review: [PR #16](https://github.com/VlrRbn/postgres-disaster-recovery/pull/16)
 - Source: working changes on `feat/backup-alerting`, based on `b363b5b`
 - Runtime: Python `3.12`, Linux; standard-library delivery adapters
 - External messages sent by automated tests: none
@@ -54,7 +55,7 @@ output. HTTP fixture access logging is disabled so dummy token paths are not log
 missing/stale backup detection, archive outage and recovery, stopped-primary JSON,
 verified full backup, health success, lock contention, and stopped-primary job
 failures. Alert config/state paths were isolated in its temporary directory, so
-operator recipients could not be used.
+configured recipients could not be used.
 
 The project was `postgres-dr-health-test-1792779994-26207`. The retained local
 report is `.local/reports/postgres-dr-health-test-1792779994-26207-health.json`.
@@ -64,35 +65,34 @@ were removed. Host timers were not installed or enabled.
 ShellCheck, all Compose models, systemd unit/calendar validation, and diff
 formatting passed as part of `make check`.
 
-## Operator Telegram And Gmail Exercise
+## Live Telegram And Gmail Validation
 
-Source: operator-provided command output and received-message excerpts from
-`Operator` on `2026-10-23`, using `postgres-dr-local`. Recipient addresses,
-chat IDs, tokens, and SMTP credentials are intentionally omitted.
+Sources: command output and received notifications on `2026-10-23`, using
+`postgres-dr-local`. Recipient addresses, chat IDs, tokens, and SMTP credentials
+are intentionally omitted.
 
 | Check | Observed Result |
 | --- | --- |
 | Stopped-primary failure | Received `FAILED: backup-health` with UTC `2026-10-23T19:21:54.823894+00:00` and job exit status `2` |
-| Telegram receipt | Operator confirmed the failure message arrived; output recorded `telegram firing accepted by provider` |
-| Gmail receipt | Operator confirmed the failure email arrived; output recorded `email firing accepted by provider` |
-| Repeated failed check | Operator explicitly confirmed that another failed check sent no second failure notification |
+| Telegram receipt | Failure message received; output recorded `telegram firing accepted by provider` |
+| Gmail receipt | Failure email received; output recorded `email firing accepted by provider` |
+| Repeated failed check | Repeating the failed check produced no second failure notification |
 | Healthy retry after startup | Output recorded `telegram resolved accepted by provider` and `email resolved accepted by provider` |
-| Recovery message | Operator supplied `RECOVERED: backup-health`, UTC `2026-10-23T19:24:03.591684+00:00`, job exit status `0` |
+| Recovery message | Recorded `RECOVERED: backup-health`, UTC `2026-10-23T19:24:03.591684+00:00`, job exit status `0` |
 
-Recovery was accepted by both providers; separate inbox confirmation for each
-recovery channel was not supplied. Repeated-success suppression and partial
+Recovery was accepted by both providers; receipt of each recovery message was
+not independently verified. Repeated-success suppression and partial
 provider outage handling were verified with local fixtures, not separately with
 live providers. This exercise called scheduled entrypoints manually with timers
 disabled; it does not establish unattended delivery across host reboots.
 
 ## Interpretation
 
-Automated results establish transport handling, state transitions, channel
-independence, and scheduled-command integration. The separate operator exercise
-adds real Telegram/Gmail failure receipt, repeated-failure suppression, and
-recovery acceptance. It does not establish delivery while the host or scheduler
-is unavailable, or behavior of other SMTP providers. GitHub CI for this working
-branch remains pending.
+Automated checks verify transport handling, state transitions, channel
+independence, and scheduled-command integration. Live delivery checks confirmed
+Telegram/Gmail failure receipt, repeated-failure suppression, and recovery
+acceptance. These checks do not establish delivery while the host or scheduler
+is unavailable, or behavior of other SMTP providers.
 
 Retries require a later invocation of the same job. There is no durable delivery
 queue or exactly-once guarantee. State remains local to the checkout and must be

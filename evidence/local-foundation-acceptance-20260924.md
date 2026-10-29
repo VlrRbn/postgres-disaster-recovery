@@ -2,6 +2,7 @@
 
 - Result: PASS
 - Date: `2026-09-24`
+- CI and review: [PR #1](https://github.com/VlrRbn/postgres-disaster-recovery/pull/1)
 - Environment: Linux amd64, Docker Engine `29.2.0`, Compose `v5.0.2`
 - Database: PostgreSQL `17.11` (Debian `17.11-1.pgdg12+2`)
 - Tested scope: initial Local PostgreSQL Foundation implementation
@@ -53,4 +54,4 @@ This report records the original local validation run, reformatted without a
 new database run. It demonstrates persistence across a graceful container
 recreation and continued writes using the retained volume. It does not claim
 backup restoration, crash recovery, point-in-time recovery, failover, or RPO/RTO
-results. GitHub CI execution remains pending and must pass before release.
+results.

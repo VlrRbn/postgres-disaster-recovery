@@ -2,6 +2,7 @@
 
 - Result: PASS
 - Date: `2026-10-13`
+- CI and review: [PR #11](https://github.com/VlrRbn/postgres-disaster-recovery/pull/11)
 - Source: working changes on `feat/ec2-workload-identity`, based on `0c2c1f6`
 - Environment: Linux amd64, Docker Engine `29.2.0`, Compose `5.0.2`
 - PostgreSQL: `17.11`; pgBackRest: `2.59.1`
@@ -12,7 +13,7 @@
 
 Local configuration checks, runtime regression, and Terraform validation passed.
 The reviewed AWS plan created six IAM resources, and policy simulation passed
-for both identities. GitHub CI is pending for these working changes.
+for both identities.
 
 `make check` passed with 26 unit test methods. Instance-mode checks require
 `repo1-s3-key-type=auto` and the absence of an access key, secret key, and session
@@ -55,7 +56,7 @@ confirmed prefix-scoped access: reader allows only `s3:ListBucket` and
 `s3:GetObject`; writer adds put, delete, and multipart operations, without
 historical-version deletion.
 
-The explicitly approved saved plan applied successfully: six resources added,
+The saved Terraform plan applied successfully: six resources added,
 zero existing resources changed, and zero destroyed. AWS returned these profiles:
 
 - `postgres-dr-ec2-writer`, containing `arn:aws:iam::123456789012:role/postgres-dr-ec2-writer`;

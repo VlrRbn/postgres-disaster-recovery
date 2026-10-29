@@ -16,7 +16,7 @@ names. Each release marks a completed and verified milestone.
 | Scheduled Backups And Health Checks | `v0.9.0` | Released |
 | Backup Alerting | `v0.10.0` | Released |
 | TLS For Streaming Replication | `v0.11.0` | Released |
-| Standby Recovery After WAL Loss | `v0.12.0` | Local acceptance passed |
+| Standby Recovery After WAL Loss | `v0.12.0` | Merged in [PR #19](https://github.com/VlrRbn/postgres-disaster-recovery/pull/19); release pending |
 
 ## Physical Backup Delivery Steps
 
@@ -94,7 +94,7 @@ backup and health commands. It includes explicit configuration, UTC calendar
 times, persisted catch-up, shared job locking, journald output, and lifecycle
 commands. Acceptance verifies unit syntax, calendars, real job entrypoints,
 contention, failure propagation, and safe configuration handling without enabling
-host timers. A separate operator installation exercised services, a temporary
+host timers. Validation on an Ubuntu host covered service execution, a temporary
 health timer, journal inspection, and a failure/recovery cycle. Normal calendar
 firing and logout/reboot catch-up remain untested. See
 [backup scheduling](backup-scheduling.md).
@@ -107,9 +107,9 @@ One PR adds independently enabled Telegram and SMTP delivery to the existing
 local scheduled jobs. Private configuration and per-project/job/channel state
 support failure and recovery messages, repeat suppression, and retries on later
 runs. Validation uses temporary loopback HTTPS and SMTP TLS servers, including
-partial delivery and recovery. A separate operator exercise confirmed failure
-receipt in Telegram/Gmail, suppression of repeated failures, and recovery
-acceptance by both providers. See [backup alerting](backup-alerting.md).
+partial delivery and recovery. Live Telegram/Gmail checks confirmed failure
+receipt, suppression of repeated failures, and recovery acceptance by both
+providers. See [backup alerting](backup-alerting.md).
 
 Released in `v0.10.0` after merge and successful main CI.
 

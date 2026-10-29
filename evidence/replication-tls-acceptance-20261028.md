@@ -2,6 +2,7 @@
 
 - Result: PASS
 - Date: `2026-10-28`
+- CI and review: [PR #17](https://github.com/VlrRbn/postgres-disaster-recovery/pull/17)
 - Source: working changes on `feat/replication-tls`, based on `88349a3`
 - Environment: Linux amd64, Docker Engine `29.2.0`, Compose `5.0.2`
 - PostgreSQL: `17.11`; pgBackRest: `2.59.1`
@@ -42,7 +43,7 @@ the control volume, and the temporary certificate/password directory. The local
 topology lock was removed after the completed run. These automated checks did
 not change interactive databases or secrets.
 
-A separate walkthrough used the existing `postgres-dr-replication` project with
+Validation used the existing `postgres-dr-replication` project with
 roles already reversed from a previous switchover. Service `standby` remained
 writable, while service `primary` received WAL over TLS 1.3. A replication client
 with the runtime CA and `verify-full` succeeded on timeline `2`. Plaintext was
@@ -83,7 +84,7 @@ removed its staging directory. These tests did not use Docker or user secrets.
 The result verifies encrypted seeding and WAL streaming, trust/name enforcement,
 and retained-data startup through the existing topology transitions. The legacy
 connection check simulated the old setting on a seeded test volume. The
-walkthrough additionally resumed existing interactive volumes and preserved
+additional validation resumed existing database volumes and preserved
 their data and reversed roles through recreation.
 
 Certificate expiry and deliberate CA replacement were not separately exercised
@@ -93,4 +94,4 @@ found no changes requiring block copying from a diverged writable old primary.
 
 Both nodes share a Docker host. These checks do not establish multi-host
 availability, distributed fencing, or zero-loss recovery with asynchronous
-replication. GitHub CI remains pending for these working changes.
+replication.

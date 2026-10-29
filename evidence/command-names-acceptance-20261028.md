@@ -2,6 +2,7 @@
 
 - Result: PASS
 - Date: `2026-10-28`
+- CI and review: [PR #18](https://github.com/VlrRbn/postgres-disaster-recovery/pull/18)
 - Source: working changes on `fix/command-names`, based on `0724a9b` (`v0.11.0`)
 - Environment: Linux amd64, Docker Compose, local disposable databases
 - PostgreSQL: `17.11`; pgBackRest: `2.59.1`
@@ -46,7 +47,7 @@ release notes/evidence. The legacy unit in the upgrade test is intentional.
 ## Interpretation
 
 These checks verify command dispatch and existing runtime behavior after the
-rename. GitHub CI remains pending.
+rename.
 
 The existing limits of single-host replication, asynchronous recovery, and
 local scheduler availability remain. This change adds no new recovery or

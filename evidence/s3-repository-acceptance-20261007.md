@@ -2,6 +2,7 @@
 
 - Result: PASS
 - Date: `2026-10-07`
+- CI and review: [PR #10](https://github.com/VlrRbn/postgres-disaster-recovery/pull/10)
 - Source: working changes on `feat/s3-repository`, based on `4acffcc`
 - Environment: Linux amd64, Docker Engine `29.2.0`, Compose `5.0.2`
 - PostgreSQL: `17.11`; pgBackRest: `2.59.1`
@@ -118,4 +119,4 @@ This first PR establishes external backup storage and the working backup/WAL
 path in AWS. One-hour credential snapshots support interactive lab runs. Clean
 replacement-host recovery, unattended credential refresh, and restoration with a
 separate reader identity remain the next delivery step. See
-[S3 operations](../docs/s3-repository.md). GitHub CI is pending for these working changes.
+[S3 operations](../docs/s3-repository.md).

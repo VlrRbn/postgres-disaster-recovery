@@ -169,7 +169,7 @@ make alerts-acceptance
 make check
 ```
 
-After configuring real recipients, an operator can exercise delivery with timers
+After configuring real recipients, test delivery with timers
 disabled. These commands deliberately send notifications to the enabled channels:
 
 ```bash
@@ -195,5 +195,5 @@ deletes alert configuration or history. The local config is a file secret, not
 an encrypted secret manager.
 
 See [alerting evidence](../evidence/backup-alerting-acceptance-20261023.md) for
-the verified boundary, including a separate Telegram/Gmail operator exercise.
+the verified boundary, including live Telegram/Gmail delivery checks.
 Repeat live checks with your own recipients when configuring another environment.

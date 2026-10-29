@@ -282,7 +282,7 @@ The existing disposable backup-health scenario additionally runs the same schedu
 Make entrypoints used by the units, creates a verified backup, parses healthy JSON,
 checks lock contention, and rejects both jobs with a stopped primary. It installs
 no user units and enables no timers. This proves unit definitions and job behavior.
-A separate operator exercise on Ubuntu recorded service execution through the
+Validation on Ubuntu recorded service execution through the
 user manager, a health run using a temporary 30-second timer, journal output,
 stopped-primary failure, and return to healthy after restart. The normal calendar
 intervals, logout/reboot behavior, and persistent catch-up were not exercised.
