@@ -65,7 +65,7 @@ run_scheduled_job() {
 }
 
 usage() {
-    echo 'Usage: backup.sh {init|check|full|info|verify|scheduled-full|scheduled-health}' >&2
+    echo 'Usage: backup.sh {init|check|full|info|verify|scheduled-backup|scheduled-backup-health}' >&2
     exit 2
 }
 
@@ -88,10 +88,10 @@ case "$1" in
     verify)
         verify_repository
         ;;
-    scheduled-full)
+    scheduled-backup)
         run_scheduled_job backup
         ;;
-    scheduled-health)
+    scheduled-backup-health)
         run_scheduled_job backup-health
         ;;
     *)

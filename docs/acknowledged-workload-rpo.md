@@ -87,7 +87,7 @@ The scenario adds an interactive restore mode. Use an explicit full backup label
 and an empty restore target, following the [physical restore preparation](physical-restore.md):
 
 ```bash
-BACKUP_LABEL=YYYYMMDD-HHMMSSF make restore-latest
+BACKUP_LABEL=YYYYMMDD-HHMMSSF make restore-latest-wal
 make restore-psql
 ```
 

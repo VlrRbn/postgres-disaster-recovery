@@ -15,7 +15,7 @@ names. Each release marks a completed and verified milestone.
 | Controlled Switchover And Rejoin | `v0.8.0` | Released |
 | Scheduled Backups And Health Checks | `v0.9.0` | Released |
 | Backup Alerting | `v0.10.0` | Released |
-| TLS For Streaming Replication | `v0.11.0` | Local acceptance passed |
+| TLS For Streaming Replication | `v0.11.0` | Released |
 
 ## Physical Backup Delivery Steps
 
@@ -120,6 +120,10 @@ Startup upgrades legacy standby connection settings on retained volumes.
 Acceptance rejects plaintext, an untrusted CA, and the wrong server name, then
 verifies encrypted streaming after outages, promotion, rejoin, and recreation.
 See [replication TLS](replication-tls.md).
+
+Released in `v0.11.0` after merge and successful main CI. The follow-up
+`v0.11.1` maintenance change standardizes operational command names; see the
+[command migration table](releases/v0.11.1.md#highlights).
 
 ## Acceptance Contracts
 

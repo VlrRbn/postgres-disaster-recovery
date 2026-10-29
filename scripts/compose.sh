@@ -6,7 +6,7 @@ root=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
 stop_all() {
     local listing container project processes
     local containers=()
-    bash "$root/scripts/setup.sh" schedule-stop
+    bash "$root/scripts/setup.sh" schedule-disable
     bash "$root/scripts/setup.sh" schedule-idle
 
     # Match both this checkout and our Compose project prefix, including custom projects.

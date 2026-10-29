@@ -70,7 +70,7 @@ export PGDR_S3_PROFILE=your-bootstrap-profile
 export PGDR_S3_ROLE_ARN=arn:aws:iam::123456789012:role/postgres-dr-s3-writer
 make s3-up
 make s3-backup
-make s3-info
+make s3-backup-info
 make s3-psql
 ```
 
@@ -98,7 +98,7 @@ PGDR_REPOSITORY=s3 bash scripts/compose.sh exec -T --user postgres postgres \
 PGDR_REPOSITORY=s3 bash scripts/compose.sh exec -T --user postgres postgres \
   psql -X -v ON_ERROR_STOP=1 -U postgres -d orders \
   -c "INSERT INTO orders (reference, amount_cents) VALUES ('ec2-after-target-' || to_char(clock_timestamp() AT TIME ZONE 'UTC', 'YYYYMMDDHH24MISSUS'), 900);"
-make s3-check
+make s3-backup-check
 make s3-down
 cat .local/ec2-recovery-time.txt
 base64 -w0 .local/ec2-expected.csv
@@ -205,7 +205,7 @@ allows outbound S3/IMDS access. Archiving stays disabled.
 | --- | --- |
 | `BACKUP_LABEL=... make s3-restore` | Recover the full backup's consistency point |
 | `BACKUP_LABEL=... RECOVERY_TIME=... make s3-restore-time` | Replay WAL to an inclusive UTC target |
-| `BACKUP_LABEL=... make s3-restore-latest` | Replay available WAL on the selected backup's current timeline |
+| `BACKUP_LABEL=... make s3-restore-latest-wal` | Replay available WAL on the selected backup's current timeline |
 | `make s3-restore-psql` | Open the recovered SQL shell |
 | `make s3-restore-down` | Remove the recovered container; retain its volume |
 | `make s3-restore-up` | Resume the existing restored database |

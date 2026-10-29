@@ -195,7 +195,7 @@ verify_promotion_guards() {
     step 8 'Reject premature rejoin and promotion while WAL replay is paused'
     expect_failure 'Rejoin requires a promoted standby' bash "$root/scripts/replication.sh" rejoin
     sql standby -c 'SELECT pg_wal_replay_pause();'
-    expect_failure 'WAL replay is paused' bash "$root/scripts/replication.sh" promote
+    expect_failure 'WAL replay is paused' bash "$root/scripts/replication.sh" switchover
     [[ $(sql primary -Atc 'SELECT pg_is_in_recovery();') == f ]]
     [[ $(sql standby -Atc 'SELECT pg_is_in_recovery();') == t ]]
     sql standby -c 'SELECT pg_wal_replay_resume();'
@@ -205,7 +205,7 @@ verify_promotion() {
     step 9 'Fence the old primary, promote the standby and accept a new write'
     local old_timeline new_timeline
     old_timeline=$(sql primary -Atc 'SELECT timeline_id FROM pg_control_checkpoint();')
-    bash "$root/scripts/replication.sh" promote
+    bash "$root/scripts/replication.sh" switchover
     [[ $(sql standby -Atc 'SELECT pg_is_in_recovery();') == f ]]
     new_timeline=$(sql standby -Atc 'SELECT timeline_id FROM pg_control_checkpoint();')
     (( new_timeline > old_timeline ))
@@ -242,7 +242,7 @@ verify_switched_recreation() {
     [[ $(sql standby -Atc 'SELECT pg_is_in_recovery();') == f ]]
     [[ $(bash "$root/scripts/replication.sh" primary-psql -Atc 'SELECT pg_is_in_recovery();') == f ]]
     [[ $(bash "$root/scripts/replication.sh" standby-psql -Atc 'SELECT pg_is_in_recovery();') == t ]]
-    expect_failure 'already switched roles' bash "$root/scripts/replication.sh" promote
+    expect_failure 'already switched roles' bash "$root/scripts/replication.sh" switchover
     bash "$root/scripts/replication.sh" status
     echo 'PASS: controlled promotion, persisted fencing, offline pg_rewind, reversed streaming and 24 exact rows.'
 }

@@ -22,7 +22,7 @@ Capability milestones include local Docker runtimes and verified AWS recovery:
 | [v0.8.0](https://github.com/VlrRbn/postgres-disaster-recovery/releases/tag/v0.8.0) | Controlled Switchover And Rejoin | Released |
 | [v0.9.0](https://github.com/VlrRbn/postgres-disaster-recovery/releases/tag/v0.9.0) | Scheduled Backups And Health Checks | Released |
 | [v0.10.0](https://github.com/VlrRbn/postgres-disaster-recovery/releases/tag/v0.10.0) | Backup Alerting | Released |
-| `v0.11.0` | TLS For Streaming Replication | Local acceptance passed |
+| [v0.11.0](https://github.com/VlrRbn/postgres-disaster-recovery/releases/tag/v0.11.0) | TLS For Streaming Replication | Released |
 
 ```text
 empty database volume
@@ -132,7 +132,7 @@ archive outage and primary crash, and compares recovery with the host journal.
 Its JSON report measures acknowledged loss and the interval from the last
 recovered acknowledgment to the fault trigger. See
 [acknowledged workload and RPO](docs/acknowledged-workload-rpo.md).
-`BACKUP_LABEL=YYYYMMDD-HHMMSSF make restore-latest` recovers the selected backup
+`BACKUP_LABEL=YYYYMMDD-HHMMSSF make restore-latest-wal` recovers the selected backup
 to the end of available archived WAL.
 
 ## Backup Health
@@ -151,14 +151,16 @@ failure handling, and the standalone acceptance scenario.
 
 `make schedule-install` installs optional systemd user units without enabling
 them. After checking the saved configuration and running both services once,
-`make schedule-start` enables daily full backups and health checks every thirty
+`make schedule-enable` enables daily full backups and health checks every thirty
 minutes. A shared lock serializes the scheduled jobs for the configured local
 project; failures appear in systemd service results and the user journal.
 
-`make schedule-stop` disables future timer activations while allowing an active
+`make schedule-disable` disables future timer activations while allowing an active
 job to finish. `make schedule-remove` removes idle installed units and retains
 configuration and backups. See [backup scheduling](docs/backup-scheduling.md)
 for prerequisites, UTC times, logs, user-session lifetime, and cleanup.
+When upgrading existing timers, [refresh their installed units](docs/backup-scheduling.md#update-installed-units)
+to use the renamed health command while preserving configuration and alert state.
 Scheduling is supported for the local backup runtime. An operator systemd
 exercise recorded service execution, a temporary health-timer run, journal
 output, and failure/recovery; see [scheduling evidence](evidence/backup-scheduling-acceptance-20261020.md).
@@ -168,7 +170,7 @@ Normal calendar firing and logout/reboot catch-up remain untested.
 
 `make alerts-setup` creates private configuration with Telegram and email both disabled.
 Enable either or both channels to receive failures and recovery from `make scheduled-backup`
-and `make scheduled-health`, including their systemd invocations. Saved per-channel
+and `make scheduled-backup-health`, including their systemd invocations. Saved per-channel
 state suppresses repeated accepted messages and retries failed delivery on later runs.
 Direct on-demand health and backup commands do not send notifications.
 
@@ -183,7 +185,7 @@ and [alerting evidence](evidence/backup-alerting-acceptance-20261023.md).
 
 The optional [AWS S3 runtime](docs/s3-repository.md) uses a dedicated Terraform
 bucket and prefix-scoped IAM writer role. `make s3-up`, `make s3-backup`, and
-`make s3-check` send backup data and WAL outside the database host through verified
+`make s3-backup-check` send backup data and WAL outside the database host through verified
 HTTPS. `make s3-down` retains the S3 objects and the separate local database volume.
 
 The [EC2 workload identity](docs/ec2-workload-identity.md) mode uses
@@ -204,7 +206,7 @@ standby is seeded with `pg_basebackup` and receives asynchronous WAL through
 a dedicated SCRAM-authenticated replication role and a physical slot with
 bounded WAL retention. Existing backup and S3 runtimes remain separate.
 
-Use `make replication-psql`, `make standby-psql`, and `make replication-status`
+Use `make replication-primary-psql`, `make replication-standby-psql`, and `make replication-status`
 to write, read, and inspect replication. `make replication-down` preserves both
 database volumes. See [streaming replication](docs/streaming-replication.md)
 for startup, outage exercises, passwords, and recovery limits.
@@ -213,7 +215,7 @@ for startup, outage exercises, passwords, and recovery limits.
 writes, reconnection after either server stops, and persistence across container
 recreation. Failure detection and failover are not automated.
 
-`make replication-promote` performs a controlled switchover after writers are
+`make replication-switchover` performs a controlled switchover after writers are
 stopped, fences the original primary, and promotes the standby. Then
 `make replication-rejoin` uses offline `pg_rewind` to return the old primary as
 a read-only replica. Startup and SQL commands follow the resulting roles.
@@ -279,6 +281,10 @@ Run these commands from the repository root. The interactive examples use the
 default Compose project `postgres-dr-local`. Run `make help` (or just `make`) to
 list all available commands by purpose.
 
+Several commands were renamed after `v0.11.0` to make their purpose consistent.
+See the [old-to-new command table](docs/releases/v0.11.1.md#highlights) when
+upgrading scripts or shell history. The old names are no longer accepted.
+
 To stop every running project container from this checkout, including local,
 S3, restored databases, pgAdmin, and replication:
 
@@ -291,7 +297,7 @@ volumes, secrets, and backups are retained. If a scheduled job or pgBackRest
 backup is still running, the command refuses container shutdown; let the job
 finish and repeat it. Other Docker projects and remote EC2 hosts are unaffected.
 Resume the required runtime with `make up`, `make s3-up`, or
-`make replication-up`; resume timers explicitly with `make schedule-start`.
+`make replication-up`; resume timers explicitly with `make schedule-enable`.
 
 | Command | What It Does | What Remains Afterwards |
 | --- | --- | --- |
@@ -301,9 +307,9 @@ Resume the required runtime with `make up`, `make s3-up`, or
 | `make replication-up` | Generate passwords/TLS identities and start or resume the saved topology | Two databases running in a separate Compose project |
 | `make replication-tls-setup` | Generate or validate the private CA and node certificates | Existing valid keys preserved; no databases started |
 | `make replication-status` | Show roles, sender/receiver, TLS protocol/cipher, slots and replay state | Databases stay running |
-| `make replication-promote` | With writers stopped, fence the original primary and promote the caught-up standby | Original primary stopped; promoted node writable |
+| `make replication-switchover` | With writers stopped, fence the original primary and promote the caught-up standby | Original primary stopped; promoted node writable |
 | `make replication-rejoin` | Briefly stop the new primary and run offline `pg_rewind` to rejoin the original primary | Roles reversed; original primary read-only |
-| `make replication-psql` / `make standby-psql` | Open SQL on the replication primary or standby | Databases stay running after `\q` |
+| `make replication-primary-psql` / `make replication-standby-psql` | Open SQL on the replication primary or standby | Databases stay running after `\q` |
 | `make replication-down` | Remove replication containers and network | Both database volumes, control volume, and passwords retained |
 | `make replication-acceptance` | Verify TLS, rejected insecure connections, streaming, outages, switchover and rejoin | Disposable project removed; images and build cache retained |
 | `make image` | Build the PostgreSQL image with pgBackRest | Local image and build cache; no database is started |
@@ -320,15 +326,15 @@ Resume the required runtime with `make up`, `make s3-up`, or
 | `make alerts-setup` | Create or preserve private Telegram/SMTP configuration | Both channels disabled on first setup; no messages sent |
 | `make alerts-acceptance` | Verify suppression, retries, recovery and local TLS transports | Temporary fixtures removed; no messages to real recipients |
 | `make schedule-install` | Install user units and create or preserve private schedule configuration | Units installed; timers not enabled |
-| `make schedule-start` | Enable and start both user timers | Scheduled jobs run while the user manager and database are available |
+| `make schedule-enable` | Enable and start both user timers | Scheduled jobs run while the user manager and database are available |
 | `make schedule-status` | Show upcoming timer runs and last job results | No job is started |
-| `make schedule-stop` | Disable both timers | Active jobs finish; unit files, config, and backups remain |
+| `make schedule-disable` | Disable both timers | Active jobs finish; unit files, config, and backups remain |
 | `make schedule-remove` | Disable timers and remove idle unit files | Config, logs, and Docker resources retained |
 | `make schedule-acceptance` | Verify health, scheduled job entrypoints, unit definitions, locking, and failures | Disposable Docker project removed; no host timers installed |
 | `make backup-health-acceptance` | Verify health, missing or stale backup, archive outage, recovery, and stopped primary | JSON evidence retained under `.local/reports/`; disposable containers, network, volumes, and password removed |
 | `make s3-up` | Refresh writer credentials, build/recreate the separate S3 primary, initialize its stanza, and check S3 WAL delivery | S3 primary running; password, private config, database volume, and S3 objects retained |
 | `make s3-backup` | Create and verify a full backup in the configured AWS S3 prefix | Full backup and required WAL in S3 |
-| `make s3-health` | Report S3 backup freshness and current WAL delivery as JSON | S3 primary running; active probe can add WAL |
+| `make s3-backup-health` | Report S3 backup freshness and current WAL delivery as JSON | S3 primary running; active probe can add WAL |
 | `make s3-down` | Remove only the S3 lab containers and networks | S3 objects, S3 lab database volume, settings, and passwords retained |
 | `make s3-acceptance` | Verify S3 API backup and WAL through an isolated local TLS fixture | JSON report and cached images retained; fixture containers, networks, volume, and temporary secrets removed |
 | `BACKUP_LABEL=... RECOVERY_TIME=... make s3-restore-time` | Recover an explicit S3 backup and archived WAL to an inclusive UTC target | Restored database in its own volume; archiving disabled, no local repository mount |
@@ -545,7 +551,7 @@ Its own containers, network, three volumes, and temporary secrets are removed.
 | Controlled switchover, saved fencing, and replica rejoin | Released in `v0.8.0` |
 | Scheduled local full backups and health checks | Released in `v0.9.0` |
 | Telegram and email backup alerts | Released in `v0.10.0` |
-| Verified TLS for streaming replication | `v0.11.0`: local acceptance passed |
+| Verified TLS for streaming replication | Released in `v0.11.0` |
 
 See the [delivery roadmap](docs/roadmap.md) for milestone scope,
 [contribution guidelines](CONTRIBUTING.md) for the PR workflow, and

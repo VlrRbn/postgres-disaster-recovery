@@ -85,4 +85,4 @@ The report's `verified` status covers data and recovery checks. Cleanup runs
 after report creation; its failure makes the overall command fail even if that
 verified report exists. Check the command's final exit status as well.
 
-Completed local run: [measurement evidence](../evidence/recovery-measurement-acceptance-20261001.md).
+Completed local run: [measurement evidence](../evidence/recovery-measurement-acceptance-20261002.md).

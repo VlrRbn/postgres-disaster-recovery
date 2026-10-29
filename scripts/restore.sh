@@ -22,7 +22,7 @@ prepare_restore_arguments() {
     local mode=$1
     label=${BACKUP_LABEL:-}
     if [[ ! "$label" =~ ^[0-9]{8}-[0-9]{6}F$ ]]; then
-        echo 'Set BACKUP_LABEL to an explicit full backup label from make backup-info (local) or make s3-info (S3).' >&2
+        echo 'Set BACKUP_LABEL to an explicit full backup label from make backup-info (local) or make s3-backup-info (S3).' >&2
         exit 2
     fi
     restore_args=("$label")
@@ -35,8 +35,8 @@ prepare_restore_arguments() {
         fi
         restore_args+=("$recovery_time")
     fi
-    if [[ "$mode" == latest ]]; then
-        restore_args+=(latest)
+    if [[ "$mode" == latest-wal ]]; then
+        restore_args+=(latest-wal)
     fi
 }
 
@@ -59,14 +59,14 @@ restore_from_backup() {
 }
 
 case "${1:-}" in
-    restore|time|latest)
+    restore|time|latest-wal)
         restore_from_backup "$1"
         ;;
     start)
         start_restore
         ;;
     *)
-        echo 'Usage: restore.sh {restore|time|latest|start}' >&2
+        echo 'Usage: restore.sh {restore|time|latest-wal|start}' >&2
         exit 2
         ;;
 esac

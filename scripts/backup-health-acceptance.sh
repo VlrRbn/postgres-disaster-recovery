@@ -68,8 +68,8 @@ verify_schedule_jobs() {
     make --no-print-directory --directory="$root" schedule-check
     "${compose[@]}" up --no-build --detach --wait --wait-timeout 120 postgres
     make --no-print-directory --directory="$root" scheduled-backup
-    make --no-print-directory --directory="$root" scheduled-health > "$work/scheduled-health.json"
-    python3 - "$work/scheduled-health.json" <<'PY'
+    make --no-print-directory --directory="$root" scheduled-backup-health > "$work/scheduled-backup-health.json"
+    python3 - "$work/scheduled-backup-health.json" <<'PY'
 import json
 import sys
 with open(sys.argv[1]) as stream:
@@ -91,7 +91,7 @@ verify_schedule_lock() {
         (( SECONDS < deadline )) || { echo 'Lock holder did not start.' >&2; exit 1; }
         sleep 0.1
     done
-    PGDR_SCHEDULE_LOCK_TIMEOUT_SECONDS=1 bash "$root/scripts/backup.sh" scheduled-health \
+    PGDR_SCHEDULE_LOCK_TIMEOUT_SECONDS=1 bash "$root/scripts/backup.sh" scheduled-backup-health \
         > "$work/lock-failure.log" 2>&1 || result=$?
     [[ "$result" == 75 ]]
     grep -q 'could not acquire' "$work/lock-failure.log"
@@ -104,10 +104,10 @@ verify_schedule_failure() {
     step 9 'Propagate failures when the primary is stopped'
     "${compose[@]}" stop postgres
     local result=0
-    bash "$root/scripts/backup.sh" scheduled-full > "$work/scheduled-backup-failure.log" 2>&1 || result=$?
+    bash "$root/scripts/backup.sh" scheduled-backup > "$work/scheduled-backup-failure.log" 2>&1 || result=$?
     (( result != 0 ))
     result=0
-    bash "$root/scripts/backup.sh" scheduled-health > "$work/scheduled-unhealthy.json" 2> "$work/scheduled-health-failure.log" || result=$?
+    bash "$root/scripts/backup.sh" scheduled-backup-health > "$work/scheduled-unhealthy.json" 2> "$work/scheduled-backup-health-failure.log" || result=$?
     (( result != 0 ))
     python3 - "$work/scheduled-unhealthy.json" <<'PY'
 import json

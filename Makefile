@@ -3,8 +3,8 @@
 .PHONY: help stop-all
 .PHONY: alerts-setup alerts-acceptance
 .PHONY: replication-tls-setup
-.PHONY: setup check image up psql down acceptance backup-init backup-check backup backup-info backup-verify backup-health backup-health-acceptance restore restore-time restore-latest restore-up restore-psql restore-down pgadmin-up pgadmin-down pgadmin-acceptance rpo-acceptance s3-setup s3-up s3-down s3-psql s3-backup s3-info s3-check s3-health s3-acceptance s3-restore s3-restore-time s3-restore-latest s3-restore-up s3-restore-psql s3-restore-down replication-up replication-down replication-psql standby-psql replication-status replication-acceptance replication-promote replication-rejoin
-.PHONY: schedule-install schedule-start schedule-stop schedule-remove schedule-status schedule-check schedule-acceptance scheduled-backup scheduled-health
+.PHONY: setup check image up psql down acceptance backup-init backup-check backup backup-info backup-verify backup-health backup-health-acceptance restore restore-time restore-latest-wal restore-up restore-psql restore-down pgadmin-up pgadmin-down pgadmin-acceptance rpo-acceptance s3-setup s3-up s3-down s3-psql s3-backup s3-backup-info s3-backup-check s3-backup-health s3-acceptance s3-restore s3-restore-time s3-restore-latest-wal s3-restore-up s3-restore-psql s3-restore-down replication-up replication-down replication-primary-psql replication-standby-psql replication-status replication-acceptance replication-switchover replication-rejoin
+.PHONY: schedule-install schedule-enable schedule-disable schedule-remove schedule-status schedule-check schedule-acceptance scheduled-backup scheduled-backup-health
 
 ##@ Overview
 help: ## Show commands grouped by purpose (also the default make target)
@@ -37,13 +37,13 @@ schedule-check: ## Validate systemd unit files and UTC calendars without install
 schedule-install: ## Install user units and preserve config; leave timers disabled
 	bash scripts/setup.sh schedule
 
-schedule-start: ## Enable daily backup and thirty-minute health timers
+schedule-enable: ## Enable daily backup and thirty-minute health timers
 	systemctl --user enable --now postgres-dr-backup.timer postgres-dr-backup-health.timer
 
-schedule-stop: ## Disable timers; allow running jobs to finish
-	bash scripts/setup.sh schedule-stop
+schedule-disable: ## Disable timers; allow running jobs to finish
+	bash scripts/setup.sh schedule-disable
 
-schedule-remove: schedule-stop ## Remove idle installed units; retain config and backups
+schedule-remove: schedule-disable ## Remove idle installed units; retain config and backups
 	bash scripts/setup.sh schedule-remove
 
 schedule-status: ## Show upcoming timer activations and last service results
@@ -53,10 +53,10 @@ schedule-status: ## Show upcoming timer activations and last service results
 	systemctl --user show postgres-dr-backup.service postgres-dr-backup-health.service --property=Id,ActiveState,SubState,Result,ExecMainStatus
 
 scheduled-backup: ## Run a verified local backup through the shared scheduling lock
-	bash scripts/backup.sh scheduled-full
+	bash scripts/backup.sh scheduled-backup
 
-scheduled-health: ## Run JSON backup health through the shared scheduling lock
-	@bash scripts/backup.sh scheduled-health
+scheduled-backup-health: ## Run JSON backup health through the shared scheduling lock
+	@bash scripts/backup.sh scheduled-backup-health
 
 schedule-acceptance: ## Test health and scheduled jobs in a disposable project; no host timers
 	bash scripts/backup-health-acceptance.sh --schedule
@@ -78,14 +78,14 @@ replication-up: ## Start or resume the replication topology using saved roles
 replication-down: ## Remove replication containers/network; retain both databases and control state
 	bash scripts/compose.sh --replication down
 
-replication-psql: ## Open SQL on the current writable replication node
+replication-primary-psql: ## Open SQL on the current writable replication node
 	bash scripts/replication.sh primary-psql
 
-standby-psql: ## Open SQL on the current read-only replication node
+replication-standby-psql: ## Open SQL on the current read-only replication node
 	bash scripts/replication.sh standby-psql
 
-replication-promote: ## With writers stopped, fence the old primary and promote its standby
-	bash scripts/replication.sh promote
+replication-switchover: ## With writers stopped, fence the old primary and promote its standby
+	bash scripts/replication.sh switchover
 
 replication-rejoin: ## Briefly stop the new primary and rejoin the old node read-only
 	bash scripts/replication.sh rejoin
@@ -118,8 +118,8 @@ s3-restore: s3-setup ## Recover an explicit S3 BACKUP_LABEL into an empty target
 s3-restore-time: s3-setup ## Recover S3 BACKUP_LABEL to an inclusive UTC RECOVERY_TIME
 	PGDR_REPOSITORY=s3 bash scripts/restore.sh time
 
-s3-restore-latest: s3-setup ## Recover S3 BACKUP_LABEL through available archived WAL
-	PGDR_REPOSITORY=s3 bash scripts/restore.sh latest
+s3-restore-latest-wal: s3-setup ## Recover S3 BACKUP_LABEL through available archived WAL
+	PGDR_REPOSITORY=s3 bash scripts/restore.sh latest-wal
 
 s3-restore-up: ## Resume existing S3-restored data without a new restore
 	PGDR_REPOSITORY=s3 bash scripts/restore.sh start
@@ -137,13 +137,13 @@ s3-psql: ## Open SQL in the S3 primary
 s3-backup: ## Create and verify a full backup in S3
 	PGDR_REPOSITORY=s3 bash scripts/backup.sh full
 
-s3-info: ## Show S3 backups and WAL ranges
+s3-backup-info: ## Show S3 backups and WAL ranges
 	PGDR_REPOSITORY=s3 bash scripts/backup.sh info
 
-s3-check: ## Force and verify current WAL delivery to S3
+s3-backup-check: ## Force and verify current WAL delivery to S3
 	PGDR_REPOSITORY=s3 bash scripts/backup.sh check
 
-s3-health: ## Print S3 backup freshness and active WAL delivery as JSON
+s3-backup-health: ## Print S3 backup freshness and active WAL delivery as JSON
 	@PGDR_REPOSITORY=s3 python3 scripts/backup_health.py
 
 s3-acceptance: ## Test the S3 runtime against a disposable local API fixture
@@ -208,8 +208,8 @@ restore: ## Recover explicit BACKUP_LABEL into an empty local target
 restore-time: ## Recover BACKUP_LABEL to an inclusive UTC RECOVERY_TIME
 	bash scripts/restore.sh time
 
-restore-latest: ## Recover BACKUP_LABEL through available archived WAL
-	bash scripts/restore.sh latest
+restore-latest-wal: ## Recover BACKUP_LABEL through available archived WAL
+	bash scripts/restore.sh latest-wal
 
 restore-up: ## Resume the existing restored local database
 	bash scripts/restore.sh start

@@ -60,7 +60,7 @@ setup_replication_tls() (
     echo "Private replication CA and 90-day node certificates generated: $tls"
 )
 
-stop_schedule() {
+disable_schedule() {
     local unit_dir=${XDG_CONFIG_HOME:-$HOME/.config}/systemd/user unit
     local timers=()
     for unit in postgres-dr-backup.timer postgres-dr-backup-health.timer; do
@@ -133,7 +133,7 @@ PY
     done
     systemd-analyze --user verify "${schedule_units[@]/#/$config_home/systemd/user/}"
     systemctl --user daemon-reload
-    echo 'User units installed. Review schedule.env, then run make schedule-start to enable the timers.'
+    echo 'User units installed. Review schedule.env, then run make schedule-enable to enable the timers.'
 }
 
 remove_schedule() {
@@ -187,7 +187,7 @@ PY
 case "${1:-}" in
     replication-tls) setup_replication_tls; exit ;;
     schedule) install_schedule; exit ;;
-    schedule-stop) stop_schedule; exit ;;
+    schedule-disable) disable_schedule; exit ;;
     schedule-idle) require_schedule_idle; exit ;;
     schedule-remove) remove_schedule; exit ;;
 esac

@@ -71,12 +71,15 @@ sys.exit('Unexpected systemctl operation during installation/removal')
         self.assertEqual([json.loads(line) for line in self.calls.read_text().splitlines()],
                          [['--user', 'daemon-reload']])
 
-    def test_reinstall_preserves_operator_configuration(self):
+    def test_reinstall_preserves_operator_configuration_and_refreshes_units(self):
         self.install()
         custom = 'PGDR_ROOT="/custom/checkout"\nPGDR_PROJECT="postgres-dr-custom"\n'
         self.config.write_text(custom)
+        health_unit = self.unit_dir / 'postgres-dr-backup-health.service'
+        health_unit.write_text('[Service]\nExecStart=/usr/bin/make scheduled-health\n')
         self.install()
         self.assertEqual(self.config.read_text(), custom)
+        self.assertIn(' scheduled-backup-health\n', health_unit.read_text())
 
     def test_remove_refuses_an_active_job(self):
         self.install()

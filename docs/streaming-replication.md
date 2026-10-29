@@ -45,7 +45,7 @@ the connection separately.
 Open the primary:
 
 ```bash
-make replication-psql
+make replication-primary-psql
 ```
 
 ```sql
@@ -58,7 +58,7 @@ SELECT pg_current_wal_lsn();
 Open the standby:
 
 ```bash
-make standby-psql
+make replication-standby-psql
 ```
 
 ```sql
@@ -90,7 +90,7 @@ For individual services, use the dedicated Compose configuration:
 
 ```bash
 bash scripts/compose.sh --replication stop standby
-make replication-psql
+make replication-primary-psql
 ```
 
 ```sql
@@ -101,7 +101,7 @@ INSERT INTO orders (reference, amount_cents) VALUES ('while-standby-stopped', 25
 ```bash
 bash scripts/compose.sh --replication up --no-build --detach --wait standby
 make replication-status
-make standby-psql
+make replication-standby-psql
 ```
 
 ```sql
@@ -121,7 +121,7 @@ To stop only the primary and observe the standby's retained readable snapshot:
 
 ```bash
 bash scripts/compose.sh --replication stop primary
-make standby-psql
+make replication-standby-psql
 ```
 
 ```sql

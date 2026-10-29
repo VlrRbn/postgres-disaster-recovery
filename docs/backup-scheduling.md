@@ -66,6 +66,26 @@ together. If the checkout moves, update both absolute paths in the config.
 Reinstall deliberately preserves prior values rather than silently retargeting
 an enabled schedule. Environment-file changes apply to the next job invocation.
 
+## Update Installed Units
+
+After upgrading an existing installation, refresh the units: the health service
+now calls `scheduled-backup-health` instead of `scheduled-health`. Disable the
+timers and check that any running jobs have finished:
+
+```bash
+make schedule-disable
+make schedule-status
+```
+
+Then update the unit files:
+
+```bash
+make schedule-install
+```
+
+Existing `schedule.env` settings are preserved. Alert state and service names
+are unchanged. To resume automatic runs, use `make schedule-enable` when ready.
+
 ## Run Once Through Systemd
 
 Before enabling a schedule, run both installed services and inspect their output:
@@ -88,7 +108,7 @@ with the actual backup label and check results.
 ## Enable And Inspect The Schedule
 
 ```bash
-make schedule-start
+make schedule-enable
 make schedule-status
 ```
 
@@ -144,7 +164,7 @@ run jobs; persistence only supplies a catch-up opportunity after the manager ret
 
 ## Locking, Failures, And Logs
 
-`make scheduled-backup` and `make scheduled-health` use
+`make scheduled-backup` and `make scheduled-backup-health` use
 `.local/locks/schedule-PROJECT.lock` in the checkout. The shared exclusive lock
 serializes the two operations for the same project. A second job waits up to
 300 seconds by default and fails visibly if the lock remains held. Direct script
@@ -223,7 +243,7 @@ make schedule-status
 Disable both timers without interrupting an active backup or check:
 
 ```bash
-make schedule-stop
+make schedule-disable
 ```
 
 To disable timers and stop all running project containers from this checkout:
