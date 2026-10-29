@@ -113,9 +113,8 @@ The physical slot retains WAL needed by a disconnected standby, with
 `max_slot_wal_keep_size=256MB` to limit retention at checkpoints. The primary
 also sets `wal_keep_size=64MB`. These local runtime settings provide no guaranteed
 outage duration or exact disk-use ceiling. If required WAL is recycled and the slot
-is invalidated, the standby needs reseeding. This step provides no automatic
-reseed or volume-deletion command. Inspect and deliberately replace only the
-standby's volume, or start a fresh isolated project; do not discard the primary.
+becomes `lost`, an ordinary restart cannot recover the missing history. Use the
+[explicit standby reseed](#recover-after-wal-loss) after inspecting the slot and logs.
 
 To stop only the primary and observe the standby's retained readable snapshot:
 
@@ -141,6 +140,80 @@ The standby stays read-only during this outage procedure. For an explicit role
 change, see [controlled switchover and rejoin](controlled-switchover.md).
 Stop the services with `make replication-down`
 when finished. Named volumes, local secrets, images, and build cache remain.
+
+## Recover After WAL Loss
+
+Run from the repository root. First identify the current roles and slot state:
+
+```bash
+make replication-status
+bash scripts/compose.sh --replication logs --tail 50 standby
+```
+
+In the initial topology, service `primary` is writable and service `standby`
+receives WAL. The source slot must be physical, inactive, and `lost`. The standby
+log reports that a required WAL segment was removed or its slot was invalidated.
+A container can still be healthy and readable while its WAL receiver cannot
+reconnect; container health alone does not establish streaming.
+
+After confirming the target, replace the initial standby:
+
+```bash
+RESEED_NODE=standby make replication-reseed
+make replication-status
+make replication-standby-psql
+```
+
+```sql
+SELECT pg_is_in_recovery(); -- true
+SELECT status, slot_name FROM pg_stat_wal_receiver; -- streaming, standby
+\q
+```
+
+After a completed switchover and rejoin, service `standby` is writable and
+service `primary` is the replica. Inspect logs for `primary` and instead use:
+
+```bash
+RESEED_NODE=primary make replication-reseed
+```
+
+The command rejects a missing or wrong `RESEED_NODE`, a healthy slot, an
+unavailable primary, a writable target, unrelated database identities, missing
+standby data, additional source tablespaces, and an unfinished role transition.
+It uses the existing topology lock and requires the same single operator/checkout
+as switchover. It does not recover the fenced original primary before rejoin.
+
+The source stays running. Only the selected replica is stopped. Its lost slot
+is recreated, and `pg_basebackup` copies a fresh database through verified TLS
+into `.pgdr-reseed` inside that replica's data volume. `pg_verifybackup` checks
+the new copy before the old files are replaced. Allow space for the existing
+standby plus a complete new base backup and its WAL. The old copy is discarded
+after verification. Node keys and the control volume remain separate from copied
+database files.
+
+A successful command resumes the selected node read-only, waits for WAL replay,
+and prints `Reseed complete`. Check that its slot is active, the sender reports
+TLS, and the receiver reports `streaming`. Subsequent writes on the primary
+should appear on the standby.
+
+### If Reseeding Is Interrupted
+
+Before the slot is replaced, `reseed-NODE` in the control volume records the
+source database identity. Startup refuses to use that node until a complete
+verified copy is installed. If copying fails, the previous data stays in place;
+an interruption during file replacement can leave partial data, which the marker
+also blocks. Fix the reported cause, such as TLS trust or insufficient storage,
+then repeat the same `RESEED_NODE=... make replication-reseed` command.
+
+A pending operation can recreate its inactive physical slot even if it is no
+longer `lost`, or create it if the previous attempt stopped after dropping it.
+It still requires the same source identity and a valid, reachable primary.
+Do not remove the marker, edit topology files, or start the target manually.
+
+If the command completed copying and removed the marker but startup was
+interrupted, inspect the slot/data and use `make replication-up` to resume.
+An already healthy replica is not reseeded again. `make replication-down`
+removes containers and the network while retaining databases and control state.
 
 ## Authentication And Storage
 
@@ -186,6 +259,9 @@ The disposable scenario uses a unique project and temporary secrets, then checks
 - readable standby during a primary outage and reconnection afterwards;
 - rejection of a nonempty target without its standby marker;
 - exact 22-row equality after both containers are recreated;
+- real slot/WAL loss followed by rejected ordinary restart and explicit reseeding;
+- a failed untrusted-CA copy that preserves old standby data, blocks startup, and permits retry;
+- target/identity/role guards and verified TLS after reseeding in both topologies;
 - no published host ports.
 
 The scenario also verifies controlled promotion, persisted fencing, offline
@@ -195,9 +271,12 @@ Replay waits use WAL positions with a 60-second deadline. Cleanup removes only
 the disposable project's containers, network, three volumes, and secrets. Images and
 build cache remain. CI runs this scenario alongside the existing recovery checks.
 
-The completed local run is recorded in
+The streaming run is recorded in
 [replication evidence](../evidence/streaming-replication-acceptance-20261015.md).
+See [standby reseed evidence](../evidence/standby-reseed-acceptance-20261029.md)
+for the WAL-loss exercise and its recovery checks.
 
 See PostgreSQL's [streaming replication](https://www.postgresql.org/docs/17/warm-standby.html#STREAMING-REPLICATION),
-[pg_basebackup](https://www.postgresql.org/docs/17/app-pgbasebackup.html), and
-[password file](https://www.postgresql.org/docs/17/libpq-pgpass.html) documentation.
+[pg_basebackup](https://www.postgresql.org/docs/17/app-pgbasebackup.html),
+[slot state](https://www.postgresql.org/docs/17/view-pg-replication-slots.html),
+and [password file](https://www.postgresql.org/docs/17/libpq-pgpass.html) documentation.

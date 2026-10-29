@@ -23,6 +23,8 @@ Capability milestones include local Docker runtimes and verified AWS recovery:
 | [v0.9.0](https://github.com/VlrRbn/postgres-disaster-recovery/releases/tag/v0.9.0) | Scheduled Backups And Health Checks | Released |
 | [v0.10.0](https://github.com/VlrRbn/postgres-disaster-recovery/releases/tag/v0.10.0) | Backup Alerting | Released |
 | [v0.11.0](https://github.com/VlrRbn/postgres-disaster-recovery/releases/tag/v0.11.0) | TLS For Streaming Replication | Released |
+| [v0.11.1](https://github.com/VlrRbn/postgres-disaster-recovery/releases/tag/v0.11.1) | Consistent Operational Commands | Released |
+| `v0.12.0` | Standby Recovery After WAL Loss | Local acceptance passed |
 
 ```text
 empty database volume
@@ -229,6 +231,14 @@ without reseeding. Status includes negotiated TLS protocol and cipher, including
 after rejoin. See [replication TLS](docs/replication-tls.md) for trust files,
 existing-volume startup, expiry, replacement, and negative checks.
 
+If a prolonged standby outage leaves its physical slot `lost`,
+`RESEED_NODE=standby make replication-reseed` explicitly replaces the initial
+standby from the running primary. After switchover and rejoin, select
+`RESEED_NODE=primary` instead. The command checks the target, copies through
+verified TLS, and verifies the base backup before replacing replica data.
+See [recovery after WAL loss](docs/streaming-replication.md#recover-after-wal-loss)
+for storage requirements, guards, and retry after interruption.
+
 ## Security Defaults
 
 - official PostgreSQL base image pinned to an immutable digest;
@@ -309,6 +319,7 @@ Resume the required runtime with `make up`, `make s3-up`, or
 | `make replication-status` | Show roles, sender/receiver, TLS protocol/cipher, slots and replay state | Databases stay running |
 | `make replication-switchover` | With writers stopped, fence the original primary and promote the caught-up standby | Original primary stopped; promoted node writable |
 | `make replication-rejoin` | Briefly stop the new primary and run offline `pg_rewind` to rejoin the original primary | Roles reversed; original primary read-only |
+| `RESEED_NODE=... make replication-reseed` | Replace the current standby after slot/WAL loss using a verified base backup | Primary stays running; selected replica data replaced; control state and TLS identities retained |
 | `make replication-primary-psql` / `make replication-standby-psql` | Open SQL on the replication primary or standby | Databases stay running after `\q` |
 | `make replication-down` | Remove replication containers and network | Both database volumes, control volume, and passwords retained |
 | `make replication-acceptance` | Verify TLS, rejected insecure connections, streaming, outages, switchover and rejoin | Disposable project removed; images and build cache retained |
@@ -528,7 +539,8 @@ make replication-acceptance
 ```
 
 It verifies streaming, short outages, promotion guards, persisted fencing,
-offline rejoin, and 24 exact records after role-aware container recreation.
+offline rejoin, reseeding after real WAL loss in both topologies, and 26 exact
+records after role-aware container recreation.
 Its own containers, network, three volumes, and temporary secrets are removed.
 
 ## Capability Status

@@ -16,6 +16,7 @@ names. Each release marks a completed and verified milestone.
 | Scheduled Backups And Health Checks | `v0.9.0` | Released |
 | Backup Alerting | `v0.10.0` | Released |
 | TLS For Streaming Replication | `v0.11.0` | Released |
+| Standby Recovery After WAL Loss | `v0.12.0` | Local acceptance passed |
 
 ## Physical Backup Delivery Steps
 
@@ -125,6 +126,16 @@ Released in `v0.11.0` after merge and successful main CI. The follow-up
 `v0.11.1` maintenance change standardizes operational command names; see the
 [command migration table](releases/v0.11.1.md#highlights).
 
+## Standby Reseed Delivery
+
+One PR extends the existing replication commands with explicit recovery after
+a physical slot loses required WAL. The operator names the current standby,
+while the source stays running. A verified TLS base backup is checked before
+replacing replica data; a durable marker blocks startup during incomplete work
+and permits retry. Acceptance exercises actual WAL loss, target/identity guards,
+failed copying, and successful recovery before and after role reversal. See
+[recovery after WAL loss](streaming-replication.md#recover-after-wal-loss).
+
 ## Acceptance Contracts
 
 - **Physical Backup And Restore:** create a pgBackRest backup, restore into
@@ -147,6 +158,9 @@ Released in `v0.11.0` after merge and successful main CI. The follow-up
   channels, suppress accepted repeats, and retry a failed channel independently.
 - **Replication TLS:** verify the CA and upstream name, reject insecure connections,
   and preserve encrypted streaming through the existing topology transitions.
+- **Standby Recovery After WAL Loss:** invalidate a physical slot through WAL
+  removal, reject unsafe targets, and verify explicit reseeding and subsequent
+  streaming in both supported topologies without restarting the primary.
 
 ## Scope Rules
 

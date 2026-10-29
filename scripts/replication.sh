@@ -47,6 +47,7 @@ SQL
 
 start_primary() {
     prepare_container
+    [[ ! -e "$control/reseed-primary" ]] || die 'Standby reseed is incomplete; repeat make replication-reseed with RESEED_NODE=primary.'
     if [[ -f "$control/primary-fenced" ]]; then
         [[ -f "$control/primary-rejoined" && -f "$PGDATA/standby.signal" ]] ||
             die 'Old primary is fenced; use make replication-rejoin before starting it.'
@@ -71,18 +72,23 @@ recovery_target_timeline = 'latest'
 CONF
 }
 
+prepare_standby() {
+    prepare_container
+    local password upstream=primary
+    if [[ ${PGDR_NODE:-standby} == primary ]]; then upstream=standby; fi
+    password=$(cat /run/secrets/replication_password)
+    password=${password//\\/\\\\}
+    password=${password//:/\\:}
+    umask 077
+    printf '%s:5432:replication:replicator:%s\n' "$upstream" "$password" > /var/lib/postgresql/.pgpass
+    chown postgres:postgres /var/lib/postgresql/.pgpass
+    install -d -o postgres -g postgres -m 0700 "$PGDATA"
+}
+
 start_standby() {
+    [[ ! -e "$control/reseed-${PGDR_NODE:-standby}" ]] || die 'Standby reseed is incomplete; repeat make replication-reseed with the same RESEED_NODE.'
     if [[ $(id -u) == 0 ]]; then
-        prepare_container
-        local password upstream=primary
-        if [[ ${PGDR_NODE:-standby} == primary ]]; then upstream=standby; fi
-        password=$(cat /run/secrets/replication_password)
-        password=${password//\\/\\\\}
-        password=${password//:/\\:}
-        umask 077
-        printf '%s:5432:replication:replicator:%s\n' "$upstream" "$password" > /var/lib/postgresql/.pgpass
-        chown postgres:postgres /var/lib/postgresql/.pgpass
-        install -d -o postgres -g postgres -m 0700 "$PGDATA"
+        prepare_standby
         exec gosu postgres bash /opt/replication.sh start-standby
     fi
     if [[ ${PGDR_NODE:-standby} == primary ]]; then
@@ -120,6 +126,52 @@ rewind_primary() {
     touch "$PGDATA/standby.signal"
 }
 
+validate_reseed_target() {
+    local expected=$1 identifier
+    [[ "$expected" =~ ^[0-9]{19,20}$ && "$PGDATA" == /var/lib/postgresql/data && ! -L "$PGDATA" ]] || die 'Invalid reseed target or system identifier.'
+    case "$(topology):${PGDR_NODE:-}" in
+        initial:standby|rejoined:primary) ;;
+        *) die 'Reseed requires the current standby in a stable topology.' ;;
+    esac
+    [[ ! -L "$PGDATA/.pgdr-reseed" ]] || die 'Reseed staging path must not be a symbolic link.'
+    if [[ -f "$control/reseed-$PGDR_NODE" ]]; then
+        [[ $(cat "$control/reseed-$PGDR_NODE") == "$expected" ]] || die 'Pending reseed belongs to another database system.'
+    else
+        [[ ! -e "$PGDATA/.pgdr-reseed" ]] || die 'Reseed staging exists without a pending marker; inspect it before proceeding.'
+        [[ -s "$PGDATA/PG_VERSION" && -f "$PGDATA/standby.signal" ]] || die 'Reseed target must contain an existing standby.'
+        identifier=$(LC_ALL=C pg_controldata "$PGDATA" | awk -F ': *' '/^Database system identifier:/ {print $2}')
+        [[ "$identifier" == "$expected" ]] || die 'Standby and primary system identifiers differ; reseed refused.'
+    fi
+}
+
+copy_standby() {
+    local expected=$1 node=${PGDR_NODE:-} upstream=primary stage="$PGDATA/.pgdr-reseed"
+    validate_reseed_target "$expected"
+    if [[ $(id -u) == 0 ]]; then
+        prepare_standby
+        exec gosu postgres bash /opt/replication.sh copy-standby "$expected"
+    fi
+    if [[ "$node" == primary ]]; then upstream=standby; fi
+    # The durable marker blocks startup throughout copying and file replacement.
+    umask 077
+    printf '%s\n' "$expected" > "$control/reseed-$node.tmp"
+    mv -- "$control/reseed-$node.tmp" "$control/reseed-$node"
+    rm -rf -- "$stage"
+    mkdir -- "$stage"
+    pg_basebackup --dbname="host=$upstream user=replicator application_name=$node passfile=/var/lib/postgresql/.pgpass connect_timeout=5 sslmode=verify-full sslrootcert=$tls/ca.crt" \
+        --pgdata="$stage" --wal-method=stream --write-recovery-conf \
+        --slot="$node" --checkpoint=fast --no-password
+    pg_verifybackup "$stage"
+    [[ $(LC_ALL=C pg_controldata "$stage" | awk -F ': *' '/^Database system identifier:/ {print $2}') == "$expected" ]] || die 'Copied database system identifier changed; original standby data preserved.'
+    # Replace only this stopped standby's fixed PGDATA, keeping the staged copy.
+    find "$PGDATA" -mindepth 1 -maxdepth 1 ! -name .pgdr-reseed -exec rm -rf -- {} +
+    find "$stage" -mindepth 1 -maxdepth 1 -exec mv --target-directory="$PGDATA" -- {} +
+    rmdir -- "$stage"
+    configure_recovery_connection
+    rm -- "$control/reseed-$node"
+    echo "Verified base backup installed for service $node."
+}
+
 if [[ ${BASH_SOURCE[0]} != "$0" ]]; then
     initialize_primary
     return
@@ -137,6 +189,15 @@ case "${1:-}" in
         exit
         ;;
     rewind-primary) rewind_primary; exit ;;
+    reseed-check) validate_reseed_target "$2"; exit ;;
+    reseed-pending) test -f "$control/reseed-$PGDR_NODE"; exit ;;
+    reseed-mark)
+        validate_reseed_target "$2"
+        printf '%s\n' "$2" > "$control/reseed-$PGDR_NODE.tmp"
+        mv -- "$control/reseed-$PGDR_NODE.tmp" "$control/reseed-$PGDR_NODE"
+        exit
+        ;;
+    copy-standby) copy_standby "$2"; exit ;;
 esac
 
 root=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
@@ -234,6 +295,45 @@ rejoin_primary() {
     echo 'Rejoin complete: service standby is primary; service primary is its read-only replica.'
 }
 
+reseed_standby() {
+    local source replica identifier slot_status pending=false
+    case "$(read_topology)" in
+        initial) source=primary; replica=standby ;;
+        rejoined) source=standby; replica=primary ;;
+        *) die 'Reseed requires initial or rejoined topology; finish the current switchover first.' ;;
+    esac
+    [[ ${RESEED_NODE:-} == "$replica" ]] || die "Set RESEED_NODE=$replica to replace the current standby; primary service $source is preserved."
+    [[ $(sql "$source" -Atc 'SELECT pg_is_in_recovery();') == f ]] || die 'Reseed requires the current primary to be reachable and writable.'
+    [[ $(sql "$source" -Atc "SELECT count(*) FROM pg_tablespace WHERE spcname NOT IN ('pg_default', 'pg_global');") == 0 ]] || die 'Reseed does not support additional tablespaces.'
+    identifier=$(sql "$source" -Atc 'SELECT system_identifier FROM pg_control_system();')
+    "${compose[@]}" run --rm --no-deps --user postgres --entrypoint bash "$replica" \
+        /opt/replication.sh reseed-check "$identifier"
+    if "${compose[@]}" run --rm --no-deps --user postgres --entrypoint bash "$replica" /opt/replication.sh reseed-pending; then pending=true; fi
+    slot_status=$(sql "$source" -Atc "SELECT slot_type || ':' || active || ':' || coalesce(wal_status, 'unknown')
+        FROM pg_replication_slots WHERE slot_name = '$replica';")
+    if "$pending"; then
+        [[ -z "$slot_status" || "$slot_status" == physical:false:* ]] || die 'Pending reseed requires an inactive physical slot.'
+    else
+        [[ "$slot_status" == physical:false:lost ]] || die 'Reseed requires an inactive lost physical slot; healthy standbys are preserved.'
+    fi
+    if container_running "$replica"; then
+        [[ $(sql "$replica" -Atc 'SELECT pg_is_in_recovery();') == t ]] || die 'Reseed target is writable; refusing to stop or replace it.'
+    fi
+    echo "Reseeding service $replica from writable service $source; the primary remains running."
+    "${compose[@]}" stop "$replica"
+    if container_running "$replica"; then die 'Standby did not stop; reseed refused.'; fi
+    "${compose[@]}" run --rm --no-deps --user postgres --entrypoint bash "$replica" \
+        /opt/replication.sh reseed-mark "$identifier"
+    sql "$source" -c "SELECT pg_drop_replication_slot('$replica')
+        WHERE EXISTS (SELECT FROM pg_replication_slots WHERE slot_name = '$replica');
+        SELECT pg_create_physical_replication_slot('$replica', true);"
+    "${compose[@]}" run --rm --no-deps --entrypoint bash "$replica" /opt/replication.sh copy-standby "$identifier"
+    "${compose[@]}" up --no-build --no-deps --detach --wait --wait-timeout 120 "$replica"
+    [[ $(sql "$replica" -Atc 'SELECT pg_is_in_recovery();') == t ]] || die 'Reseeded node is not in recovery.'
+    wait_for_replay "$replica" "$(sql "$source" -Atc 'SELECT pg_current_wal_flush_lsn();')"
+    echo "Reseed complete: service $replica is read-only and receiving WAL from service $source."
+}
+
 show_status() {
     local node recovering
     printf '\nContainers\n'
@@ -290,9 +390,9 @@ open_sql() {
         psql -X -v ON_ERROR_STOP=1 -U postgres -d orders "$@"
 }
 
-# Serialize topology changes in this checkout. SQL clients must be stopped by the operator.
+# Serialize topology changes here; switchover and rejoin require paused writers.
 case "${1:-}" in
-    up|switchover|rejoin)
+    up|switchover|rejoin|reseed)
         project=${PGDR_REPLICATION_PROJECT:-postgres-dr-replication}
         [[ "$project" =~ ^postgres-dr-replication($|-[a-z0-9-]+$) ]] || die 'Invalid replication project.'
         mkdir -p "$root/.local/replication-locks"
@@ -310,7 +410,8 @@ case "${1:-}" in
         ;;
     switchover) perform_switchover ;;
     rejoin) rejoin_primary ;;
+    reseed) reseed_standby ;;
     primary-psql) shift; open_sql primary "$@" ;;
     standby-psql) shift; open_sql standby "$@" ;;
-    *) echo 'Usage: replication.sh up|status|switchover|rejoin|primary-psql|standby-psql' >&2; exit 2 ;;
+    *) echo 'Usage: replication.sh up|status|switchover|rejoin|reseed|primary-psql|standby-psql' >&2; exit 2 ;;
 esac
