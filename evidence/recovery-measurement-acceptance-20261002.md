@@ -2,6 +2,7 @@
 
 - Result: PASS
 - Date: `2026-10-02`
+- CI and review: [PR #7](https://github.com/VlrRbn/postgres-disaster-recovery/pull/7)
 - Source: working changes on `feat/recovery-measurement`, based on `6d9e1ae`
 - Environment: Linux amd64, Docker Engine `29.2.0`, Compose `5.0.2`
 - PostgreSQL: `17.11`; pgBackRest: `2.59.1`
@@ -12,7 +13,7 @@
 `make check` and `make acceptance` passed. The workflow YAML parsed successfully.
 Three report tests verified monotonic timing despite reversed wall-clock stamps,
 rejection of corrupt/missing or included post-target rows, and rejection of
-invalid monotonic or rollback boundaries. GitHub CI is pending for this change.
+invalid monotonic or rollback boundaries.
 
 ## Measured Run
 

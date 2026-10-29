@@ -2,6 +2,7 @@
 
 - Result: PASS
 - Date: `2026-10-15`
+- CI and review: [PR #13](https://github.com/VlrRbn/postgres-disaster-recovery/pull/13)
 - Source: working changes on `feat/streaming-replication`, based on `3e65549`
 - Environment: Linux amd64, Docker Engine `29.2.0`, Compose `5.0.2`
 - PostgreSQL: `17.11`; pgBackRest: `2.59.1`
@@ -48,4 +49,3 @@ This result proves local asynchronous streaming, read-only standby behavior,
 short-outage recovery, and persistence across container recreation. Both services
 share one Docker host. It does not establish host-failure tolerance, zero-loss
 failover, TLS transport, automatic promotion, or standby reseeding after WAL loss.
-GitHub CI is pending for these working changes.

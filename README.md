@@ -24,7 +24,7 @@ Capability milestones include local Docker runtimes and verified AWS recovery:
 | [v0.10.0](https://github.com/VlrRbn/postgres-disaster-recovery/releases/tag/v0.10.0) | Backup Alerting | Released |
 | [v0.11.0](https://github.com/VlrRbn/postgres-disaster-recovery/releases/tag/v0.11.0) | TLS For Streaming Replication | Released |
 | [v0.11.1](https://github.com/VlrRbn/postgres-disaster-recovery/releases/tag/v0.11.1) | Consistent Operational Commands | Released |
-| `v0.12.0` | Standby Recovery After WAL Loss | Local acceptance passed |
+| `v0.12.0` | Standby Recovery After WAL Loss | Merged in [PR #19](https://github.com/VlrRbn/postgres-disaster-recovery/pull/19); release pending |
 
 ```text
 empty database volume
@@ -163,9 +163,9 @@ configuration and backups. See [backup scheduling](docs/backup-scheduling.md)
 for prerequisites, UTC times, logs, user-session lifetime, and cleanup.
 When upgrading existing timers, [refresh their installed units](docs/backup-scheduling.md#update-installed-units)
 to use the renamed health command while preserving configuration and alert state.
-Scheduling is supported for the local backup runtime. An operator systemd
-exercise recorded service execution, a temporary health-timer run, journal
-output, and failure/recovery; see [scheduling evidence](evidence/backup-scheduling-acceptance-20261020.md).
+Scheduling is supported for the local backup runtime. Validation on Ubuntu
+confirmed service execution, a temporary health-timer run, journal output,
+and failure/recovery; see [scheduling evidence](evidence/backup-scheduling-acceptance-20261020.md).
 Normal calendar firing and logout/reboot catch-up remain untested.
 
 ## Backup Alerting
@@ -178,8 +178,8 @@ Direct on-demand health and backup commands do not send notifications.
 
 Telegram uses verified HTTPS; SMTP supports verified STARTTLS or implicit TLS.
 Job stdout stays intact, notification diagnostics go to stderr/journald, and
-secrets remain outside Git. Tests use local TLS fixtures; a separate operator
-exercise confirmed failure receipt in Telegram and Gmail, repeat suppression,
+secrets remain outside Git. Automated tests use local TLS fixtures. Live delivery
+checks confirmed failure receipt in Telegram and Gmail, repeat suppression,
 and recovery acceptance by both providers. See [alerting operations](docs/backup-alerting.md)
 and [alerting evidence](evidence/backup-alerting-acceptance-20261023.md).
 

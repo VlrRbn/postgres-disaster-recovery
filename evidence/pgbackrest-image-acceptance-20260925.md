@@ -2,6 +2,7 @@
 
 - Result: PASS
 - Date: `2026-09-25`
+- CI and review: [PR #2](https://github.com/VlrRbn/postgres-disaster-recovery/pull/2)
 - Environment: Linux amd64, Docker Engine `29.2.0`, Compose `v5.0.2`
 - PostgreSQL: `17.11` (Debian `17.11-1.pgdg12+2`)
 - pgBackRest: `2.59.1` (PGDG package `2.59.1-1.pgdg12+1`)
@@ -49,7 +50,7 @@ whitespace checks. Both Compose and workflow YAML parsed successfully.
 ## Scope And Interpretation
 
 This is local evidence for package installation and database compatibility on
-amd64. GitHub CI for this change remains pending. The run does not configure or
-verify a backup repository, WAL archiving, backup restoration, or PITR.
+amd64. The run does not configure or verify a backup repository, WAL archiving,
+backup restoration, or PITR.
 Transitive APT dependencies remain unpinned, as described in the
 [image contract](../docs/pgbackrest-image.md).

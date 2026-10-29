@@ -1,7 +1,8 @@
 # Backup Scheduling Acceptance Evidence
 
-- Result: PASS for unit definitions, installer safety, scheduled job entrypoints, and the recorded operator systemd exercise
+- Result: PASS for unit definitions, installer safety, scheduled job entrypoints, and host service/timer validation
 - Date: `2026-10-20`
+- CI and review: [PR #15](https://github.com/VlrRbn/postgres-disaster-recovery/pull/15)
 - Source: working changes on `feat/scheduled-backups`, based on `25d8c68`
 - Environment: Linux amd64, Docker Engine `29.2.0`, Compose `5.0.2`
 - systemd tools: `255`; PostgreSQL: `17.11`; pgBackRest: `2.59.1`
@@ -47,11 +48,11 @@ detection, physical restore, unsafe-target/missing-WAL rejection, and PITR. Its
 PITR comparison recovered 22 exact records and verified recovered-side writes
 survived restart. Its disposable resources were removed.
 
-## Operator Systemd Exercise — 2026-10-20
+## Systemd Service And Timer Validation — 2026-10-20
 
-Source: operator-provided command output and user-journal excerpts from
-`Operator`, using the existing `postgres-dr-local` runtime. Times below are
-UTC; journal headers displayed Irish local time, one hour ahead on this date.
+Sources: service command output and user-journal entries from the existing
+`postgres-dr-local` runtime. Times below are UTC; journal headers displayed Irish
+local time, one hour ahead on this date.
 This is a separate host exercise from the automated disposable runs above.
 
 | Check | Observed Result |
@@ -61,7 +62,7 @@ This is a separate host exercise from the automated disposable runs above.
 | Retention and integrity | Oldest backup `20261020-165908F` expired; two backups remained, with 1270 valid files each and 15 valid WAL segments |
 | Manual health service | `status=healthy` at `20:14:37`, with a 93600-second age limit and successful active WAL delivery |
 | Timer enablement | Both timers enabled; next calendar activations shown by `list-timers` |
-| Temporary health timer | After the operator applied a 30-second runtime timer override, the journal recorded another healthy invocation at `20:21:29` |
+| Temporary health timer | A 30-second runtime timer override triggered another healthy invocation, recorded in the journal at `20:21:29` |
 | Override cleanup | Unit output subsequently showed the original `OnCalendar=*-*-* *:15,45:00 UTC`, without the temporary drop-in |
 | Stopped primary | At `20:31:03`, health returned `unhealthy`; systemd recorded `Result=exit-code`, `ExecMainStatus=2`, and `ActiveState=failed` |
 | Recovery | After `make up` and a service retry, health returned `healthy` at `20:33:38`, still referencing backup `20261020-200918F` |
@@ -76,11 +77,11 @@ not exercised. Live `stop-all` behavior is not established by these excerpts.
 ## Interpretation
 
 Automated checks verify unit declarations and job behavior without a live user
-manager. The separate operator exercise adds service and journal evidence,
+manager. Host validation adds service and journal evidence,
 a temporary health-timer run, and a failure/recovery cycle on the host. It does
 not establish daily or half-hourly calendar firing, user-manager persistence
 across logout/reboot, or missed-run catch-up.
 
 Scheduling is limited to an available local primary. S3 scheduling, starting the
 database after reboot, external alert delivery, and recovery objectives are
-outside this change. GitHub CI is pending for these working changes.
+outside this change.

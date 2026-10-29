@@ -2,6 +2,7 @@
 
 - Result: PASS
 - Date: `2026-10-29`
+- CI and review: [PR #19](https://github.com/VlrRbn/postgres-disaster-recovery/pull/19)
 - Source: working changes on `feat/standby-reseed`, based on `b37d9d0` (`v0.11.1`)
 - Environment: Linux amd64, Docker Engine `29.2.0`, Compose `5.0.2`
 - PostgreSQL: `17.11`; pgBackRest: `2.59.1`
@@ -81,4 +82,3 @@ slot was missing were not separately exercised.
 
 This does not provide automatic failover, recovery of an unfinished rejoin,
 multi-host availability, or a zero-loss guarantee for asynchronous replication.
-GitHub CI remains pending for these working changes.

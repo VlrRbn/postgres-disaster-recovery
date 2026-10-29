@@ -2,6 +2,7 @@
 
 - Result: PASS
 - Date: `2026-10-05`
+- CI and review: [PR #9](https://github.com/VlrRbn/postgres-disaster-recovery/pull/9)
 - Source: working changes on `feat/backup-health`, based on `3a9011a`
 - Environment: Linux amd64, Docker Engine `29.2.0`, Compose `5.0.2`
 - PostgreSQL: `17.11`; pgBackRest: `2.59.1`
@@ -14,7 +15,6 @@
 locally. Fourteen unit test methods passed. The workflow YAML parsed successfully
 and includes the new acceptance command and saved JSON report output.
 An invalid zero backup-age limit returned Python exit `2` with no JSON stdout.
-GitHub CI is pending for these working changes.
 
 ## Observed Health Results
 

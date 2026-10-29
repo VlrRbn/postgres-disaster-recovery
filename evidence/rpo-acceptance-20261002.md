@@ -2,6 +2,7 @@
 
 - Result: PASS
 - Date: `2026-10-02`
+- CI and review: [PR #8](https://github.com/VlrRbn/postgres-disaster-recovery/pull/8)
 - Source: working changes on `feat/acknowledged-workload-rpo`, based on `dacb92d`
 - Environment: Linux amd64, Docker Engine `29.2.0`, Compose `5.0.2`
 - PostgreSQL: `17.11`; pgBackRest: `2.59.1`
@@ -12,7 +13,6 @@
 
 `make check`, `make rpo-acceptance`, and `make acceptance` passed locally.
 Seven report test methods passed and the workflow YAML parsed successfully.
-GitHub CI is pending for these working changes.
 
 ## Workload And Fault
 

@@ -2,6 +2,7 @@
 
 - Result: PASS
 - Date: `2026-10-13`
+- CI and review: [PR #12](https://github.com/VlrRbn/postgres-disaster-recovery/pull/12)
 - Source: working changes on `feat/ec2-s3-recovery`, based on `fbb6daf`
 - Environment: Linux amd64, Docker Engine `29.2.0`, Compose `5.0.2`
 - PostgreSQL: `17.11`; pgBackRest: `2.59.1`
@@ -58,7 +59,7 @@ The planned host uses Ubuntu AMI `ami-071f50ad836e28841`, `t3.small`, an encrypt
 IMDSv2 is required with response hop limit two. The security group defines no
 inbound rules. The host receives an outbound public IPv4 address.
 
-The explicitly approved saved plan applied successfully: eight resources added,
+The saved Terraform plan applied successfully: eight resources added,
 zero changed, and zero destroyed. Instance `i-0b435eaefafc30348` registered in
 SSM with agent `3.3.4793.0`. Its bootstrap installed tools without initializing
 PostgreSQL or copying AWS credentials.
@@ -112,7 +113,7 @@ CSV, container inspection, report, and restore log were exported into
 
 After evidence export, the reviewed destroy plan contained exactly eight deletes
 for the temporary deployment. It excluded all S3 resources, reader/writer roles,
-and instance profiles. The approved cleanup completed with zero added, zero
+and instance profiles. Terraform cleanup completed with zero added, zero
 changed, and eight destroyed resources.
 
 Independent AWS reads confirmed the instance was terminated, its root EBS volume
