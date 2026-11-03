@@ -6,9 +6,11 @@ root=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
 schedule_units=(postgres-dr-backup.service postgres-dr-backup.timer
     postgres-dr-backup-health.service postgres-dr-backup-health.timer)
 
-validate_replication_tls() {
-    local tls=$1 name mode certificate_key private_key
-    for name in ca primary standby; do
+validate_tls() {
+    local tls=$1 profile=${2:-replication} name mode certificate_key private_key
+    local names=(primary standby)
+    if [[ "$profile" == patroni ]]; then names=(pg1 pg2 etcd1 etcd2 etcd3 patroni); fi
+    for name in ca "${names[@]}"; do
         [[ -s "$tls/$name.crt" && -s "$tls/$name.key" &&
            ! -L "$tls/$name.crt" && ! -L "$tls/$name.key" && -O "$tls/$name.key" ]] || {
             echo "Incomplete or unsafe TLS files in $tls; inspect them before retrying." >&2
@@ -21,43 +23,57 @@ validate_replication_tls() {
         [[ "$certificate_key" == "$private_key" ]] || { echo "TLS key does not match $name.crt." >&2; return 1; }
     done
     openssl verify -check_ss_sig -CAfile "$tls/ca.crt" "$tls/ca.crt" > /dev/null
-    for name in primary standby; do
+    for name in "${names[@]}"; do
         openssl verify -purpose sslserver -verify_hostname "$name" \
             -CAfile "$tls/ca.crt" "$tls/$name.crt" > /dev/null
+        if [[ "$profile" == patroni ]]; then
+            openssl verify -purpose sslclient -CAfile "$tls/ca.crt" "$tls/$name.crt" > /dev/null
+        fi
     done
 }
 
-setup_replication_tls() (
+setup_tls() (
     umask 077
-    local directory=${PGDR_REPLICATION_DIR:-$root/.local/replication} tls work name
+    local profile=${1:-replication} directory=${PGDR_REPLICATION_DIR:-$root/.local/replication} tls work name extensions san
+    local names=(primary standby)
+    if [[ "$profile" == patroni ]]; then
+        directory=${PGDR_PATRONI_DIR:-$root/.local/patroni}
+        names=(pg1 pg2 etcd1 etcd2 etcd3 patroni)
+    fi
     tls="$directory/tls"
     if [[ -e "$tls" || -L "$tls" ]]; then
         [[ -d "$tls" && ! -L "$tls" ]] || { echo 'TLS path must be a directory, not a symlink.' >&2; exit 1; }
-        validate_replication_tls "$tls"
-        echo "Existing valid replication TLS material preserved: $tls"
+        validate_tls "$tls" "$profile"
+        echo "Existing valid $profile TLS material preserved: $tls"
         exit
     fi
     mkdir -p "$directory"
     work=$(mktemp -d "$directory/.tls-XXXXXX")
     trap 'rm -rf -- "$work"' EXIT
     openssl req -x509 -newkey rsa:2048 -nodes -sha256 -days 365 \
-        -subj /CN=postgres-dr-replication-ca \
+        -subj "/CN=postgres-dr-$profile-ca" \
         -addext 'basicConstraints=critical,CA:TRUE,pathlen:0' \
         -addext 'keyUsage=critical,keyCertSign,cRLSign' \
         -keyout "$work/ca.key" -out "$work/ca.crt" > /dev/null 2>&1
-    for name in primary standby; do
+    for name in "${names[@]}"; do
         openssl req -new -newkey rsa:2048 -nodes -sha256 -subj "/CN=$name" \
             -keyout "$work/$name.key" -out "$work/$name.csr" > /dev/null 2>&1
-        printf 'basicConstraints=critical,CA:FALSE\nkeyUsage=critical,digitalSignature,keyEncipherment\nextendedKeyUsage=serverAuth\nsubjectAltName=DNS:%s\n' "$name" > "$work/extensions"
+        extensions=serverAuth
+        san="DNS:$name"
+        if [[ "$profile" == patroni ]]; then
+            extensions=serverAuth,clientAuth
+            san+=',DNS:localhost,IP:127.0.0.1'
+        fi
+        printf 'basicConstraints=critical,CA:FALSE\nkeyUsage=critical,digitalSignature,keyEncipherment\nextendedKeyUsage=%s\nsubjectAltName=%s\n' "$extensions" "$san" > "$work/extensions"
         openssl x509 -req -sha256 -days 90 -in "$work/$name.csr" \
             -CA "$work/ca.crt" -CAkey "$work/ca.key" -set_serial "0x$(openssl rand -hex 16)" \
             -extfile "$work/extensions" -out "$work/$name.crt" > /dev/null 2>&1
         rm -- "$work/$name.csr"
     done
     rm -- "$work/extensions"
-    validate_replication_tls "$work"
+    validate_tls "$work" "$profile"
     mv -T -- "$work" "$tls"
-    echo "Private replication CA and 90-day node certificates generated: $tls"
+    echo "Private $profile CA and 90-day node certificates generated: $tls"
 )
 
 disable_schedule() {
@@ -185,7 +201,17 @@ PY
 
 # Select the runtime's password file, then create it only when absent.
 case "${1:-}" in
-    replication-tls) setup_replication_tls; exit ;;
+    replication-tls) setup_tls; exit ;;
+    patroni)
+        directory=${PGDR_PATRONI_DIR:-$root/.local/patroni}
+        mkdir -p "$directory"
+        for name in postgres replication patroni_api; do
+            secret_file="$directory/${name}_password"
+            create_or_preserve_secret
+        done
+        setup_tls patroni
+        exit
+        ;;
     schedule) install_schedule; exit ;;
     schedule-disable) disable_schedule; exit ;;
     schedule-idle) require_schedule_idle; exit ;;

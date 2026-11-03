@@ -38,6 +38,17 @@ if [[ ${1:-} == --stop-all ]]; then
     stop_all
     exit
 fi
+if [[ ${1:-} == --patroni ]]; then
+    shift
+    project=${PGDR_PATRONI_PROJECT:-postgres-dr-patroni}
+    if [[ ! "$project" =~ ^postgres-dr-patroni($|-[a-z0-9-]+$) ]]; then
+        echo 'Patroni requires a postgres-dr-patroni or postgres-dr-patroni-* project.' >&2
+        exit 2
+    fi
+    export PGDR_PATRONI_DIR=${PGDR_PATRONI_DIR:-$root/.local/patroni}
+    exec docker compose --project-name "$project" --project-directory "$root" \
+        --file "$root/compose.patroni.yaml" "$@"
+fi
 if [[ ${1:-} == --replication ]]; then
     shift
     project=${PGDR_REPLICATION_PROJECT:-postgres-dr-replication}
