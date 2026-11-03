@@ -46,6 +46,39 @@ x-postgres: &postgres
   networks: [patroni]
 
 services:
+  haproxy:
+    image: haproxy:3.2.26-alpine@sha256:5893840576071e6217cd52ebdcc14f454c6f7a631056fa6f4e0f40d3cac4215b
+    user: '${PGDR_PATRONI_UID:-0}:${PGDR_PATRONI_GID:-0}'
+    volumes:
+      - ./haproxy/patroni.cfg:/usr/local/etc/haproxy/haproxy.cfg:ro
+    secrets:
+      - {source: ca, target: ca.crt}
+    ports:
+      - '127.0.0.1:${PGDR_PATRONI_PORT:-6432}:5432'
+    depends_on:
+      pg1: {condition: service_healthy}
+      pg2: {condition: service_healthy}
+    healthcheck:
+      test: [CMD, haproxy, -c, -f, /usr/local/etc/haproxy/haproxy.cfg]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    mem_limit: 128m
+    networks: [patroni, endpoint]
+  client:
+    image: postgres:17.11-bookworm@sha256:639ab7ceb90e13123085b741fb31ef493fba25463002f6da665352e7b534b652
+    profiles: [tools]
+    entrypoint: [bash, /opt/patroni.sh, endpoint-client]
+    command: []
+    volumes:
+      - ./scripts/patroni.sh:/opt/patroni.sh:ro
+    secrets:
+      - postgres_password
+      - {source: ca, target: ca.crt}
+    networks: [patroni]
   etcd1:
     <<: *etcd
     environment:
@@ -145,3 +178,4 @@ volumes:
 networks:
   patroni:
     internal: true
+  endpoint:

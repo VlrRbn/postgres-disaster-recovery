@@ -44,7 +44,7 @@ jobs:
         run: make pgadmin-acceptance
       - name: Verify replication, controlled switchover, and rejoin
         run: make replication-acceptance
-      - name: Verify Patroni failover, acknowledged loss, rejoin and etcd quorum
+      - name: Verify Patroni and HAProxy failover, verified TLS, rejoin and etcd quorum
         run: make patroni-acceptance
       - name: Show Patroni failover measurement
         run: cat .local/reports/*-patroni.json
