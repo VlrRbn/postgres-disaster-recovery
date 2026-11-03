@@ -46,6 +46,9 @@ if [[ ${1:-} == --patroni ]]; then
         exit 2
     fi
     export PGDR_PATRONI_DIR=${PGDR_PATRONI_DIR:-$root/.local/patroni}
+    export PGDR_PATRONI_UID PGDR_PATRONI_GID
+    PGDR_PATRONI_UID=$(id -u)
+    PGDR_PATRONI_GID=$(id -g)
     exec docker compose --project-name "$project" --project-directory "$root" \
         --file "$root/compose.patroni.yaml" "$@"
 fi

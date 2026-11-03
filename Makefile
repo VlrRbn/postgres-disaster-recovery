@@ -4,7 +4,7 @@
 .PHONY: alerts-setup alerts-acceptance
 .PHONY: replication-tls-setup
 .PHONY: replication-reseed
-.PHONY: patroni-setup patroni-up patroni-down patroni-status patroni-primary-psql patroni-standby-psql patroni-acceptance
+.PHONY: patroni-setup patroni-up patroni-down patroni-status patroni-primary-psql patroni-standby-psql patroni-endpoint-psql patroni-acceptance
 .PHONY: setup check image up psql down acceptance backup-init backup-check backup backup-info backup-verify backup-health backup-health-acceptance restore restore-time restore-latest-wal restore-up restore-psql restore-down pgadmin-up pgadmin-down pgadmin-acceptance rpo-acceptance s3-setup s3-up s3-down s3-psql s3-backup s3-backup-info s3-backup-check s3-backup-health s3-acceptance s3-restore s3-restore-time s3-restore-latest-wal s3-restore-up s3-restore-psql s3-restore-down replication-up replication-down replication-primary-psql replication-standby-psql replication-status replication-acceptance replication-switchover replication-rejoin
 .PHONY: schedule-install schedule-enable schedule-disable schedule-remove schedule-status schedule-check schedule-acceptance scheduled-backup scheduled-backup-health
 
@@ -120,6 +120,9 @@ patroni-primary-psql: ## Open SQL on the Patroni primary with a valid leader lea
 
 patroni-standby-psql: ## Open SQL on the current Patroni replica
 	bash scripts/patroni.sh standby-psql
+
+patroni-endpoint-psql: ## Open SQL through HAProxy with verified end-to-end PostgreSQL TLS
+	bash scripts/patroni.sh endpoint-psql
 
 patroni-acceptance: ## Verify automatic failover, acknowledged loss, rejoin and etcd quorum
 	python3 scripts/patroni_acceptance.py

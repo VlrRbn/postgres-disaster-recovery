@@ -32,6 +32,35 @@ validate_tls() {
     done
 }
 
+upgrade_patroni_endpoint_tls() (
+    umask 077
+    local tls=$1 work name
+    local missing=()
+    for name in pg1 pg2; do
+        if ! openssl verify -verify_hostname haproxy -CAfile "$tls/ca.crt" "$tls/$name.crt" > /dev/null 2>&1; then
+            missing+=("$name")
+        fi
+    done
+    if (( ${#missing[@]} == 0 )); then return; fi
+    work=$(mktemp -d "$tls/.endpoint-XXXXXX")
+    trap 'rm -rf -- "$work"' EXIT
+    # Validate every replacement before changing certificates; preserve CA and keys.
+    for name in "${missing[@]}"; do
+        openssl req -new -key "$tls/$name.key" -subj "/CN=$name" \
+            -out "$work/$name.csr" > /dev/null 2>&1
+        printf 'basicConstraints=critical,CA:FALSE\nkeyUsage=critical,digitalSignature,keyEncipherment\nextendedKeyUsage=serverAuth,clientAuth\nsubjectAltName=DNS:%s,DNS:localhost,IP:127.0.0.1,DNS:haproxy\n' "$name" > "$work/extensions"
+        openssl x509 -req -sha256 -days 90 -in "$work/$name.csr" \
+            -CA "$tls/ca.crt" -CAkey "$tls/ca.key" -set_serial "0x$(openssl rand -hex 16)" \
+            -extfile "$work/extensions" -out "$work/$name.crt" > /dev/null 2>&1
+        openssl verify -purpose sslserver -verify_hostname "$name" \
+            -CAfile "$tls/ca.crt" "$work/$name.crt" > /dev/null
+        openssl verify -purpose sslserver -verify_hostname haproxy \
+            -CAfile "$tls/ca.crt" "$work/$name.crt" > /dev/null
+    done
+    for name in "${missing[@]}"; do mv -- "$work/$name.crt" "$tls/$name.crt"; done
+    echo 'Added the haproxy DNS identity to PostgreSQL certificates; existing CA and private keys preserved.'
+)
+
 setup_tls() (
     umask 077
     local profile=${1:-replication} directory=${PGDR_REPLICATION_DIR:-$root/.local/replication} tls work name extensions san
@@ -44,6 +73,7 @@ setup_tls() (
     if [[ -e "$tls" || -L "$tls" ]]; then
         [[ -d "$tls" && ! -L "$tls" ]] || { echo 'TLS path must be a directory, not a symlink.' >&2; exit 1; }
         validate_tls "$tls" "$profile"
+        if [[ "$profile" == patroni ]]; then upgrade_patroni_endpoint_tls "$tls"; fi
         echo "Existing valid $profile TLS material preserved: $tls"
         exit
     fi
@@ -63,6 +93,7 @@ setup_tls() (
         if [[ "$profile" == patroni ]]; then
             extensions=serverAuth,clientAuth
             san+=',DNS:localhost,IP:127.0.0.1'
+            if [[ "$name" == pg1 || "$name" == pg2 ]]; then san+=',DNS:haproxy'; fi
         fi
         printf 'basicConstraints=critical,CA:FALSE\nkeyUsage=critical,digitalSignature,keyEncipherment\nextendedKeyUsage=%s\nsubjectAltName=%s\n' "$extensions" "$san" > "$work/extensions"
         openssl x509 -req -sha256 -days 90 -in "$work/$name.csr" \

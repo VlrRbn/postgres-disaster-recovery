@@ -42,8 +42,23 @@ open_sql() {
     "${compose[@]}" exec "${tty_flags[@]}" --user postgres "${matches[0]}" psql -X -v ON_ERROR_STOP=1 -U postgres -d orders "$@"
 }
 
+endpoint_client() (
+    umask 077
+    local password passfile
+    password=$(cat /run/secrets/postgres_password)
+    password=${password//\\/\\\\}
+    password=${password//:/\\:}
+    passfile=$(mktemp)
+    trap 'rm -f -- "$passfile"' EXIT
+    printf 'haproxy:5432:orders:postgres:%s\n' "$password" > "$passfile"
+    unset password
+    PSQL_HISTORY=/dev/null PGPASSFILE="$passfile" PGSSLMODE=verify-full PGSSLROOTCERT=/run/secrets/ca.crt PGCONNECT_TIMEOUT=5 \
+        psql -X -v ON_ERROR_STOP=1 -h haproxy -p 5432 -U postgres -d orders "$@"
+)
+
 case "${1:-}" in
     start-node) start_node ;;
+    endpoint-client) shift; endpoint_client "$@" ;;
     init)
         psql -X -v ON_ERROR_STOP=1 -U postgres -d postgres -c 'CREATE DATABASE orders;'
         psql -X -v ON_ERROR_STOP=1 -U postgres -d orders -f /opt/orders.sql
@@ -65,5 +80,11 @@ case "${1:-}" in
         ;;
     primary-psql) shift; open_sql primary "$@" ;;
     standby-psql) shift; open_sql replica "$@" ;;
-    *) echo 'Usage: patroni.sh up|status|primary-psql|standby-psql' >&2; exit 2 ;;
+    endpoint-psql)
+        shift
+        tty_flags=()
+        if [[ ! -t 0 || ! -t 1 ]]; then tty_flags=(-T); fi
+        "${compose[@]}" run --rm --no-deps "${tty_flags[@]}" --user "$(id -u):$(id -g)" client "$@"
+        ;;
+    *) echo 'Usage: patroni.sh up|status|primary-psql|standby-psql|endpoint-psql' >&2; exit 2 ;;
 esac

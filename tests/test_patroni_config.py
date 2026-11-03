@@ -14,6 +14,71 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 class PatroniConfigurationTests(unittest.TestCase):
+    def prepare(self, directory):
+        return subprocess.run(['bash', str(ROOT / 'scripts/setup.sh'), 'patroni'],
+                              env=dict(os.environ, PGDR_PATRONI_DIR=str(directory)),
+                              capture_output=True, text=True, timeout=30)
+
+    def legacy_certificates(self, directory):
+        """Recreate the node certificates generated before the shared endpoint."""
+        tls = Path(directory) / 'tls'
+        extensions = Path(directory) / 'extensions'
+        for node in ('pg1', 'pg2'):
+            csr = Path(directory) / f'{node}.csr'
+            subprocess.run(['openssl', 'req', '-new', '-key', str(tls / f'{node}.key'),
+                            '-subj', f'/CN={node}', '-out', str(csr)], check=True, capture_output=True)
+            extensions.write_text('basicConstraints=critical,CA:FALSE\n'
+                                  'keyUsage=critical,digitalSignature,keyEncipherment\n'
+                                  'extendedKeyUsage=serverAuth,clientAuth\n'
+                                  f'subjectAltName=DNS:{node},DNS:localhost,IP:127.0.0.1\n')
+            subprocess.run(['openssl', 'x509', '-req', '-sha256', '-days', '90', '-in', str(csr),
+                            '-CA', str(tls / 'ca.crt'), '-CAkey', str(tls / 'ca.key'),
+                            '-set_serial', '10' if node == 'pg1' else '11', '-extfile', str(extensions),
+                            '-out', str(tls / f'{node}.crt')], check=True, capture_output=True)
+            csr.unlink()
+        extensions.unlink()
+
+    def test_legacy_endpoint_upgrade_preserves_ca_keys_and_other_certificates(self):
+        with tempfile.TemporaryDirectory() as directory:
+            self.assertEqual(self.prepare(directory).returncode, 0)
+            self.legacy_certificates(directory)
+            tls = Path(directory) / 'tls'
+            before = {p: p.read_bytes() for p in tls.iterdir()}
+            self.assertEqual(self.prepare(directory).returncode, 0)
+            for path, original in before.items():
+                if path.name in ('pg1.crt', 'pg2.crt'):
+                    self.assertNotEqual(original, path.read_bytes())
+                    for identity in (path.stem, 'haproxy', 'localhost'):
+                        subprocess.run(['openssl', 'verify', '-verify_hostname', identity,
+                                        '-CAfile', str(tls / 'ca.crt'), str(path)],
+                                       check=True, capture_output=True, timeout=5)
+                else:
+                    self.assertEqual(original, path.read_bytes(), path)
+            upgraded = {p: p.read_bytes() for p in tls.iterdir()}
+            self.assertEqual(self.prepare(directory).returncode, 0)
+            self.assertEqual(upgraded, {p: p.read_bytes() for p in tls.iterdir()})
+
+    def test_failed_upgrade_preserves_both_previous_certificates(self):
+        with tempfile.TemporaryDirectory() as directory:
+            self.assertEqual(self.prepare(directory).returncode, 0)
+            self.legacy_certificates(directory)
+            tls = Path(directory) / 'tls'
+            before = {p: p.read_bytes() for p in tls.iterdir()}
+            binary = Path(directory) / 'bin'
+            binary.mkdir()
+            real_openssl = subprocess.check_output(['which', 'openssl'], text=True).strip()
+            wrapper = binary / 'openssl'
+            wrapper.write_text('#!/bin/bash\n'
+                               'if [[ "$1" == x509 && "$2" == -req && "$*" == *pg2.csr* ]]; then exit 1; fi\n'
+                               f'exec "{real_openssl}" "$@"\n')
+            wrapper.chmod(0o700)
+            result = subprocess.run(['bash', str(ROOT / 'scripts/setup.sh'), 'patroni'],
+                                    env=dict(os.environ, PGDR_PATRONI_DIR=directory,
+                                             PATH=f'{binary}:{os.environ["PATH"]}'),
+                                    capture_output=True, timeout=30)
+            self.assertNotEqual(result.returncode, 0)
+            self.assertEqual(before, {p: p.read_bytes() for p in tls.iterdir()})
+
     def test_unknown_member_cannot_generate_connection_settings(self):
         with self.assertRaises(ValueError):
             configuration('pg1 other-host', 'private', 'private', 'private')

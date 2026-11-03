@@ -17,7 +17,8 @@ names. Each release marks a completed and verified milestone.
 | Backup Alerting | `v0.10.0` | Released |
 | TLS For Streaming Replication | `v0.11.0` | Released |
 | Standby Recovery After WAL Loss | `v0.12.0` | Released |
-| Patroni Automatic Failover | `v0.13.0` | Local acceptance passed |
+| Patroni Automatic Failover | `v0.13.0` | Released |
+| Stable Primary Endpoint | `v0.14.0` | Local acceptance passed |
 
 ## Physical Backup Delivery Steps
 
@@ -147,7 +148,13 @@ private files hold credentials. Acceptance covers automatic promotion after a
 container crash, measured acknowledged-order loss, former-leader recovery,
 quorum changes, and retained-state recreation. See [Patroni](patroni.md).
 
-A stable application endpoint through HAProxy is the next delivery step.
+Released in `v0.13.0` after merge and successful main CI.
+
+The next PR adds HAProxy as the stable primary endpoint. Verified HTTPS role
+checks select the leader; SQL TLS passes through to PostgreSQL. The existing
+acceptance covers connection loss, new connections after promotion, unavailable
+routing during quorum loss, and retained-state recreation. Certificate setup
+extends existing node identities while preserving the CA and private keys.
 Both runtimes remain single-host deployments with their documented fencing and
 asynchronous durability limits.
 
@@ -186,5 +193,5 @@ asynchronous durability limits.
 - Local reproducibility remains supported.
 - Claim backup recovery only after restoration has been exercised.
 
-Local retention rollover, independent external monitoring, application traffic
-routing, and backup integration for the Patroni cluster are possible later capabilities.
+Local retention rollover, independent external monitoring, application retry
+handling, and backup integration for the Patroni cluster are possible later capabilities.

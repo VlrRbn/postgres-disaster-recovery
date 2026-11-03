@@ -26,7 +26,8 @@ Capability milestones include local Docker runtimes and verified AWS recovery:
 | [v0.11.0](https://github.com/VlrRbn/postgres-disaster-recovery/releases/tag/v0.11.0) | TLS For Streaming Replication | Released |
 | [v0.11.1](https://github.com/VlrRbn/postgres-disaster-recovery/releases/tag/v0.11.1) | Consistent Operational Commands | Released |
 | [v0.12.0](https://github.com/VlrRbn/postgres-disaster-recovery/releases/tag/v0.12.0) | Standby Recovery After WAL Loss | Released |
-| `v0.13.0` | Patroni Automatic Failover | Local acceptance passed |
+| [v0.13.0](https://github.com/VlrRbn/postgres-disaster-recovery/releases/tag/v0.13.0) | Patroni Automatic Failover | Released |
+| `v0.14.0` | Stable Primary Endpoint | Local acceptance passed |
 
 ```text
 empty database volume
@@ -249,11 +250,19 @@ verified TLS protects replication, the REST API, and etcd communication.
 Use `make patroni-status`, `make patroni-primary-psql`, and `make patroni-standby-psql` to inspect
 and access current roles. `make patroni-down` retains database and etcd state.
 
+`make patroni-endpoint-psql` connects through HAProxy at `haproxy:5432`, using
+verified PostgreSQL TLS. Host clients can use `127.0.0.1:6432`; set
+`PGDR_PATRONI_PORT` to choose another host port. HAProxy checks each node's
+HTTPS `/primary` endpoint and routes new connections to the current leader.
+Existing sessions must reconnect after failure; transactions are not replayed.
+Before upgrading an existing `v0.13.0` runtime, stop it with `make patroni-down`
+so the next startup loads the certificates extended for the shared endpoint.
+
 `make patroni-acceptance` tests automatic failover, acknowledged-order loss, former-leader
 recovery, quorum loss/restoration, and persistence. See
 [Patroni operations](docs/patroni.md) for startup, failure checks, credentials,
-shutdown, and the limits of this single-host asynchronous runtime. HAProxy and
-backup integration for the separate Patroni cluster are follow-up.
+shutdown, and the limits of this single-host asynchronous runtime. Backup
+integration for the separate Patroni cluster remains follow-up work.
 
 ## Security Defaults
 
@@ -261,7 +270,7 @@ backup integration for the separate Patroni cluster are follow-up.
 - pgBackRest package installed at an exact reviewed version;
 - generated local password stored outside Git with file mode `0600`;
 - password mounted through a Compose file secret;
-- internal database network with no published host port;
+- database containers on internal networks; the Patroni SQL proxy publishes only on loopback;
 - CPU, memory, and shared-memory limits;
 - isolated database resources for automated acceptance.
 
@@ -341,6 +350,7 @@ Resume the required runtime with `make up`, `make s3-up`, or
 | `make replication-acceptance` | Verify TLS, rejected insecure connections, streaming, outages, switchover and rejoin | Disposable project removed; images and build cache retained |
 | `make patroni-up` / `make patroni-status` | Start or inspect the Patroni/etcd cluster | Separate Patroni databases and DCS state retained |
 | `make patroni-primary-psql` / `make patroni-standby-psql` | Open SQL on the current Patroni primary or replica | Role checked through verified HTTPS; local socket session opened |
+| `make patroni-endpoint-psql` | Connect to the current primary through HAProxy | Verified end-to-end TLS; disposable SQL client removed on exit |
 | `make patroni-down` | Remove Patroni containers/network | Both databases, three etcd stores, credentials and certificates retained |
 | `make patroni-acceptance` | Verify automatic failover, measured loss, rejoin and quorum behavior | JSON/journal retained; disposable cluster and secrets removed |
 | `make image` | Build the PostgreSQL image with pgBackRest | Local image and build cache; no database is started |
@@ -585,7 +595,8 @@ Its own containers, network, three volumes, and temporary secrets are removed.
 | Telegram and email backup alerts | Released in `v0.10.0` |
 | Verified TLS for streaming replication | Released in `v0.11.0` |
 | Standby recovery after WAL loss | Released in `v0.12.0` |
-| Patroni automatic failover | Local acceptance passed for `v0.13.0` |
+| Patroni automatic failover | Released in `v0.13.0` |
+| Stable primary endpoint through HAProxy | Local acceptance passed for `v0.14.0` |
 
 See the [delivery roadmap](docs/roadmap.md) for milestone scope,
 [contribution guidelines](CONTRIBUTING.md) for the PR workflow, and
