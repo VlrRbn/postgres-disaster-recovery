@@ -16,7 +16,8 @@ names. Each release marks a completed and verified milestone.
 | Scheduled Backups And Health Checks | `v0.9.0` | Released |
 | Backup Alerting | `v0.10.0` | Released |
 | TLS For Streaming Replication | `v0.11.0` | Released |
-| Standby Recovery After WAL Loss | `v0.12.0` | Merged in [PR #19](https://github.com/VlrRbn/postgres-disaster-recovery/pull/19); release pending |
+| Standby Recovery After WAL Loss | `v0.12.0` | Released |
+| Patroni Automatic Failover | `v0.13.0` | Local acceptance passed |
 
 ## Physical Backup Delivery Steps
 
@@ -136,6 +137,20 @@ and permits retry. Acceptance exercises actual WAL loss, target/identity guards,
 failed copying, and successful recovery before and after role reversal. See
 [recovery after WAL loss](streaming-replication.md#recover-after-wal-loss).
 
+Released in `v0.12.0` after merge and successful main CI.
+
+## Patroni Delivery
+
+The first PR adds an independent two-node PostgreSQL cluster managed by Patroni
+with a three-member etcd quorum. TLS protects replication, REST, and DCS traffic;
+private files hold credentials. Acceptance covers automatic promotion after a
+container crash, measured acknowledged-order loss, former-leader recovery,
+quorum changes, and retained-state recreation. See [Patroni](patroni.md).
+
+A stable application endpoint through HAProxy is the next delivery step.
+Both runtimes remain single-host deployments with their documented fencing and
+asynchronous durability limits.
+
 ## Acceptance Contracts
 
 - **Physical Backup And Restore:** create a pgBackRest backup, restore into
@@ -161,6 +176,8 @@ failed copying, and successful recovery before and after role reversal. See
 - **Standby Recovery After WAL Loss:** invalidate a physical slot through WAL
   removal, reject unsafe targets, and verify explicit reseeding and subsequent
   streaming in both supported topologies without restarting the primary.
+- **Patroni Automatic Failover:** verify automatic election, acknowledged-order
+  recovery/loss, former-leader rejoin, and demotion when DCS quorum is lost.
 
 ## Scope Rules
 
@@ -169,5 +186,5 @@ failed copying, and successful recovery before and after role reversal. See
 - Local reproducibility remains supported.
 - Claim backup recovery only after restoration has been exercised.
 
-Retention rollover, independent external monitoring, and automatic failover
-are possible later capabilities. Their scope and release targets are not yet defined.
+Local retention rollover, independent external monitoring, application traffic
+routing, and backup integration for the Patroni cluster are possible later capabilities.

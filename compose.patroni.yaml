@@ -1,0 +1,147 @@
+x-etcd: &etcd
+  image: quay.io/coreos/etcd:v3.6.5@sha256:3397341272b9e0a6f44d7e3fc7c321c6efe6cbe82ce866b9b01d0c704bfc5bf3
+  entrypoint: [/usr/local/bin/etcd]
+  environment: &etcd-env
+    ETCD_DATA_DIR: /etcd-data
+    ETCD_LISTEN_CLIENT_URLS: https://0.0.0.0:2379
+    ETCD_LISTEN_PEER_URLS: https://0.0.0.0:2380
+    ETCD_INITIAL_CLUSTER: etcd1=https://etcd1:2380,etcd2=https://etcd2:2380,etcd3=https://etcd3:2380
+    ETCD_INITIAL_CLUSTER_TOKEN: postgres-dr-patroni
+    ETCD_INITIAL_CLUSTER_STATE: new
+    ETCD_CLIENT_CERT_AUTH: 'true'
+    ETCD_TRUSTED_CA_FILE: /run/secrets/ca.crt
+    ETCD_CERT_FILE: /run/secrets/server.crt
+    ETCD_KEY_FILE: /run/secrets/server.key
+    ETCD_PEER_CLIENT_CERT_AUTH: 'true'
+    ETCD_PEER_TRUSTED_CA_FILE: /run/secrets/ca.crt
+    ETCD_PEER_CERT_FILE: /run/secrets/server.crt
+    ETCD_PEER_KEY_FILE: /run/secrets/server.key
+  healthcheck:
+    test: [CMD, /usr/local/bin/etcdctl, '--endpoints=https://localhost:2379', '--cacert=/run/secrets/ca.crt', '--cert=/run/secrets/server.crt', '--key=/run/secrets/server.key', endpoint, health]
+    interval: 3s
+    timeout: 5s
+    retries: 30
+  mem_limit: 256m
+  networks: [patroni]
+
+x-postgres: &postgres
+  build:
+    context: ./docker/patroni
+  entrypoint: [bash, /opt/patroni.sh, start-node]
+  command: []
+  depends_on:
+    etcd1: {condition: service_healthy}
+    etcd2: {condition: service_healthy}
+    etcd3: {condition: service_healthy}
+  healthcheck:
+    test: [CMD, python3, /opt/patroni_config.py, probe, health]
+    interval: 3s
+    timeout: 5s
+    retries: 50
+    start_period: 10s
+  stop_grace_period: 30s
+  shm_size: 128mb
+  mem_limit: 512m
+  cpus: 1.0
+  networks: [patroni]
+
+services:
+  etcd1:
+    <<: *etcd
+    environment:
+      <<: *etcd-env
+      ETCD_NAME: etcd1
+      ETCD_ADVERTISE_CLIENT_URLS: https://etcd1:2379
+      ETCD_INITIAL_ADVERTISE_PEER_URLS: https://etcd1:2380
+    secrets:
+      - {source: ca, target: ca.crt}
+      - {source: etcd1_cert, target: server.crt}
+      - {source: etcd1_key, target: server.key}
+    volumes: [etcd1_data:/etcd-data]
+  etcd2:
+    <<: *etcd
+    environment:
+      <<: *etcd-env
+      ETCD_NAME: etcd2
+      ETCD_ADVERTISE_CLIENT_URLS: https://etcd2:2379
+      ETCD_INITIAL_ADVERTISE_PEER_URLS: https://etcd2:2380
+    secrets:
+      - {source: ca, target: ca.crt}
+      - {source: etcd2_cert, target: server.crt}
+      - {source: etcd2_key, target: server.key}
+    volumes: [etcd2_data:/etcd-data]
+  etcd3:
+    <<: *etcd
+    environment:
+      <<: *etcd-env
+      ETCD_NAME: etcd3
+      ETCD_ADVERTISE_CLIENT_URLS: https://etcd3:2379
+      ETCD_INITIAL_ADVERTISE_PEER_URLS: https://etcd3:2380
+    secrets:
+      - {source: ca, target: ca.crt}
+      - {source: etcd3_cert, target: server.crt}
+      - {source: etcd3_key, target: server.key}
+    volumes: [etcd3_data:/etcd-data]
+  pg1:
+    <<: *postgres
+    environment: {PGDR_PATRONI_NODE: pg1, PGDATA: /var/lib/postgresql/data/pgdata}
+    secrets:
+      - postgres_password
+      - replication_password
+      - patroni_api_password
+      - {source: ca, target: ca.crt}
+      - {source: pg1_cert, target: server.crt}
+      - {source: pg1_key, target: server.key}
+      - {source: client_cert, target: etcd-client.crt}
+      - {source: client_key, target: etcd-client.key}
+    volumes:
+      - pg1_data:/var/lib/postgresql/data
+      - ./scripts/patroni.sh:/opt/patroni.sh:ro
+      - ./scripts/patroni_config.py:/opt/patroni_config.py:ro
+      - ./sql/001-orders.sql:/opt/orders.sql:ro
+  pg2:
+    <<: *postgres
+    environment: {PGDR_PATRONI_NODE: pg2, PGDATA: /var/lib/postgresql/data/pgdata}
+    secrets:
+      - postgres_password
+      - replication_password
+      - patroni_api_password
+      - {source: ca, target: ca.crt}
+      - {source: pg2_cert, target: server.crt}
+      - {source: pg2_key, target: server.key}
+      - {source: client_cert, target: etcd-client.crt}
+      - {source: client_key, target: etcd-client.key}
+    volumes:
+      - pg2_data:/var/lib/postgresql/data
+      - ./scripts/patroni.sh:/opt/patroni.sh:ro
+      - ./scripts/patroni_config.py:/opt/patroni_config.py:ro
+      - ./sql/001-orders.sql:/opt/orders.sql:ro
+
+secrets:
+  postgres_password: {file: '${PGDR_PATRONI_DIR:-./.local/patroni}/postgres_password'}
+  replication_password: {file: '${PGDR_PATRONI_DIR:-./.local/patroni}/replication_password'}
+  patroni_api_password: {file: '${PGDR_PATRONI_DIR:-./.local/patroni}/patroni_api_password'}
+  ca: {file: '${PGDR_PATRONI_DIR:-./.local/patroni}/tls/ca.crt'}
+  pg1_cert: {file: '${PGDR_PATRONI_DIR:-./.local/patroni}/tls/pg1.crt'}
+  pg1_key: {file: '${PGDR_PATRONI_DIR:-./.local/patroni}/tls/pg1.key'}
+  pg2_cert: {file: '${PGDR_PATRONI_DIR:-./.local/patroni}/tls/pg2.crt'}
+  pg2_key: {file: '${PGDR_PATRONI_DIR:-./.local/patroni}/tls/pg2.key'}
+  etcd1_cert: {file: '${PGDR_PATRONI_DIR:-./.local/patroni}/tls/etcd1.crt'}
+  etcd1_key: {file: '${PGDR_PATRONI_DIR:-./.local/patroni}/tls/etcd1.key'}
+  etcd2_cert: {file: '${PGDR_PATRONI_DIR:-./.local/patroni}/tls/etcd2.crt'}
+  etcd2_key: {file: '${PGDR_PATRONI_DIR:-./.local/patroni}/tls/etcd2.key'}
+  etcd3_cert: {file: '${PGDR_PATRONI_DIR:-./.local/patroni}/tls/etcd3.crt'}
+  etcd3_key: {file: '${PGDR_PATRONI_DIR:-./.local/patroni}/tls/etcd3.key'}
+  client_cert: {file: '${PGDR_PATRONI_DIR:-./.local/patroni}/tls/patroni.crt'}
+  client_key: {file: '${PGDR_PATRONI_DIR:-./.local/patroni}/tls/patroni.key'}
+
+volumes:
+  pg1_data:
+  pg2_data:
+  etcd1_data:
+  etcd2_data:
+  etcd3_data:
+
+networks:
+  patroni:
+    internal: true

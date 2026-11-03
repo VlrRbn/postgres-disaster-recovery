@@ -4,7 +4,8 @@ A PostgreSQL disaster recovery and replication project built in verifiable
 milestones. It combines a digest-pinned database image, WAL archiving, physical
 backups, PITR, recovery measurement, AWS S3 storage, clean-host EC2 recovery,
 streaming replication with verified TLS, controlled switchover with replica
-rejoin, optional scheduled backups and health checks, and Telegram/email alerting.
+rejoin, optional scheduled backups and health checks, Telegram/email alerting,
+and a separate Patroni/etcd runtime for automatic failover.
 
 ## Project Status
 
@@ -24,7 +25,8 @@ Capability milestones include local Docker runtimes and verified AWS recovery:
 | [v0.10.0](https://github.com/VlrRbn/postgres-disaster-recovery/releases/tag/v0.10.0) | Backup Alerting | Released |
 | [v0.11.0](https://github.com/VlrRbn/postgres-disaster-recovery/releases/tag/v0.11.0) | TLS For Streaming Replication | Released |
 | [v0.11.1](https://github.com/VlrRbn/postgres-disaster-recovery/releases/tag/v0.11.1) | Consistent Operational Commands | Released |
-| `v0.12.0` | Standby Recovery After WAL Loss | Merged in [PR #19](https://github.com/VlrRbn/postgres-disaster-recovery/pull/19); release pending |
+| [v0.12.0](https://github.com/VlrRbn/postgres-disaster-recovery/releases/tag/v0.12.0) | Standby Recovery After WAL Loss | Released |
+| `v0.13.0` | Patroni Automatic Failover | Local acceptance passed |
 
 ```text
 empty database volume
@@ -239,6 +241,20 @@ verified TLS, and verifies the base backup before replacing replica data.
 See [recovery after WAL loss](docs/streaming-replication.md#recover-after-wal-loss)
 for storage requirements, guards, and retry after interruption.
 
+## Automatic Failover With Patroni
+
+`make patroni-up` starts two Patroni-managed PostgreSQL nodes and three etcd members
+in their own Compose project. Patroni manages the leader lease and promotion;
+verified TLS protects replication, the REST API, and etcd communication.
+Use `make patroni-status`, `make patroni-primary-psql`, and `make patroni-standby-psql` to inspect
+and access current roles. `make patroni-down` retains database and etcd state.
+
+`make patroni-acceptance` tests automatic failover, acknowledged-order loss, former-leader
+recovery, quorum loss/restoration, and persistence. See
+[Patroni operations](docs/patroni.md) for startup, failure checks, credentials,
+shutdown, and the limits of this single-host asynchronous runtime. HAProxy and
+backup integration for the separate Patroni cluster are follow-up.
+
 ## Security Defaults
 
 - official PostgreSQL base image pinned to an immutable digest;
@@ -323,6 +339,10 @@ Resume the required runtime with `make up`, `make s3-up`, or
 | `make replication-primary-psql` / `make replication-standby-psql` | Open SQL on the replication primary or standby | Databases stay running after `\q` |
 | `make replication-down` | Remove replication containers and network | Both database volumes, control volume, and passwords retained |
 | `make replication-acceptance` | Verify TLS, rejected insecure connections, streaming, outages, switchover and rejoin | Disposable project removed; images and build cache retained |
+| `make patroni-up` / `make patroni-status` | Start or inspect the Patroni/etcd cluster | Separate Patroni databases and DCS state retained |
+| `make patroni-primary-psql` / `make patroni-standby-psql` | Open SQL on the current Patroni primary or replica | Role checked through verified HTTPS; local socket session opened |
+| `make patroni-down` | Remove Patroni containers/network | Both databases, three etcd stores, credentials and certificates retained |
+| `make patroni-acceptance` | Verify automatic failover, measured loss, rejoin and quorum behavior | JSON/journal retained; disposable cluster and secrets removed |
 | `make image` | Build the PostgreSQL image with pgBackRest | Local image and build cache; no database is started |
 | `make up` | Generate or reuse the password, build and start PostgreSQL, initialize the repository, and check WAL archiving | Database running with initialized backup storage; no backup yet on first startup |
 | `make psql` | Open a SQL session in the running database | Database stays running when the session closes |
@@ -564,6 +584,8 @@ Its own containers, network, three volumes, and temporary secrets are removed.
 | Scheduled local full backups and health checks | Released in `v0.9.0` |
 | Telegram and email backup alerts | Released in `v0.10.0` |
 | Verified TLS for streaming replication | Released in `v0.11.0` |
+| Standby recovery after WAL loss | Released in `v0.12.0` |
+| Patroni automatic failover | Local acceptance passed for `v0.13.0` |
 
 See the [delivery roadmap](docs/roadmap.md) for milestone scope,
 [contribution guidelines](CONTRIBUTING.md) for the PR workflow, and
@@ -614,8 +636,11 @@ The replication runtime also shares one Docker host and uses asynchronous WAL
 over verified TLS with a local CA. It has no automated certificate renewal or
 managed PKI. Controlled switchover requires paused writers and a reachable source;
 rejoin briefly stops the new primary. Its saved startup guards provide local
-workflow fencing. Distributed fencing, automatic failover, application traffic
-routing, and reverse switchover are not implemented.
+workflow fencing. Distributed fencing, application traffic routing, and reverse
+switchover are not implemented in that manual runtime. Automatic failover is
+available in the separate Patroni/etcd cluster. That cluster shares the Docker
+host, has no watchdog or external fencing, and does not use the local/S3 backup
+commands.
 
 SQL exercises use the bootstrap administrator over the local container socket.
 Replication uses a dedicated SCRAM-authenticated role over the internal Docker

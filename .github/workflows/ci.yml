@@ -17,7 +17,7 @@ jobs:
   foundation:
     name: Foundation checks
     runs-on: ubuntu-24.04
-    timeout-minutes: 10
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -44,6 +44,10 @@ jobs:
         run: make pgadmin-acceptance
       - name: Verify replication, controlled switchover, and rejoin
         run: make replication-acceptance
+      - name: Verify Patroni failover, acknowledged loss, rejoin and etcd quorum
+        run: make patroni-acceptance
+      - name: Show Patroni failover measurement
+        run: cat .local/reports/*-patroni.json
 
   repository-infrastructure:
     name: S3 infrastructure validation
