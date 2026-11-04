@@ -3,9 +3,14 @@ set -euo pipefail
 
 root=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
 compose=(bash "$root/scripts/compose.sh")
+database=postgres
 
 pgbackrest() {
-    "${compose[@]}" exec -T --user postgres postgres pgbackrest --stanza=orders "$@"
+    if [[ ${PGDR_REPOSITORY:-local} == patroni && ( "$operation" == info || "$operation" == verify ) ]]; then
+        "${compose[@]}" run --rm --no-deps -T repository "$@"
+    else
+        "${compose[@]}" exec -T --user postgres "$database" pgbackrest --stanza=orders "$@"
+    fi
 }
 
 verify_repository() {
@@ -70,6 +75,11 @@ usage() {
 }
 
 (( $# == 1 )) || usage
+operation=$1
+if [[ ${PGDR_REPOSITORY:-local} == patroni && ( "$operation" == init || "$operation" == check || "$operation" == full ) ]]; then
+    # Select once per operation. A role change during a backup must fail, not retry silently.
+    database=$(bash "$root/scripts/patroni.sh" primary-node)
+fi
 
 # Dispatch one operator command; verification is shared with full backup creation.
 case "$1" in

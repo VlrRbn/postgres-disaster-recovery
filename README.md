@@ -27,7 +27,8 @@ Capability milestones include local Docker runtimes and verified AWS recovery:
 | [v0.11.1](https://github.com/VlrRbn/postgres-disaster-recovery/releases/tag/v0.11.1) | Consistent Operational Commands | Released |
 | [v0.12.0](https://github.com/VlrRbn/postgres-disaster-recovery/releases/tag/v0.12.0) | Standby Recovery After WAL Loss | Released |
 | [v0.13.0](https://github.com/VlrRbn/postgres-disaster-recovery/releases/tag/v0.13.0) | Patroni Automatic Failover | Released |
-| `v0.14.0` | Stable Primary Endpoint | Local acceptance passed |
+| [v0.14.0](https://github.com/VlrRbn/postgres-disaster-recovery/releases/tag/v0.14.0) | Stable Primary Endpoint | Released |
+| `v0.15.0` | Patroni Backup And Point-In-Time Recovery | Local acceptance passed |
 
 ```text
 empty database volume
@@ -261,8 +262,14 @@ so the next startup loads the certificates extended for the shared endpoint.
 `make patroni-acceptance` tests automatic failover, acknowledged-order loss, former-leader
 recovery, quorum loss/restoration, and persistence. See
 [Patroni operations](docs/patroni.md) for startup, failure checks, credentials,
-shutdown, and the limits of this single-host asynchronous runtime. Backup
-integration for the separate Patroni cluster remains follow-up work.
+shutdown, and the limits of this single-host asynchronous runtime.
+
+`make patroni-backup` backs up the current Patroni primary to its own local
+repository. WAL archiving continues after promotion. An explicit backup label,
+UTC target, and destination timeline allow `make patroni-restore-time` to recover
+across a failover into a separate isolated volume. See
+[Patroni backup and recovery](docs/patroni-recovery.md), including the DCS update
+required for existing clusters.
 
 ## Security Defaults
 
@@ -353,6 +360,12 @@ Resume the required runtime with `make up`, `make s3-up`, or
 | `make patroni-endpoint-psql` | Connect to the current primary through HAProxy | Verified end-to-end TLS; disposable SQL client removed on exit |
 | `make patroni-down` | Remove Patroni containers/network | Both databases, three etcd stores, credentials and certificates retained |
 | `make patroni-acceptance` | Verify automatic failover, measured loss, rejoin and quorum behavior | JSON/journal retained; disposable cluster and secrets removed |
+| `make patroni-backup-configure` | Enable archive settings in existing Patroni DCS | Restart required; existing data and unrelated settings retained |
+| `make patroni-backup-init` / `make patroni-backup` | Check WAL delivery or create a verified full backup on the current primary | Separate local repository retained |
+| `make patroni-backup-info` / `make patroni-backup-verify` | Inspect or verify backups with no live database required | Repository mounted read-only |
+| `make patroni-restore-time` / `make patroni-restore-psql` | Recover explicit backup/time/timeline and inspect isolated data | Live node volumes are not mounted; archive mode disabled |
+| `make patroni-restore-down` / `make patroni-restore-up` | Remove or resume the restored database container | Restored volume retained |
+| `make patroni-backup-acceptance` | Verify backups and PITR across promotion timelines | Disposable resources removed; JSON evidence retained |
 | `make image` | Build the PostgreSQL image with pgBackRest | Local image and build cache; no database is started |
 | `make up` | Generate or reuse the password, build and start PostgreSQL, initialize the repository, and check WAL archiving | Database running with initialized backup storage; no backup yet on first startup |
 | `make psql` | Open a SQL session in the running database | Database stays running when the session closes |
@@ -596,7 +609,8 @@ Its own containers, network, three volumes, and temporary secrets are removed.
 | Verified TLS for streaming replication | Released in `v0.11.0` |
 | Standby recovery after WAL loss | Released in `v0.12.0` |
 | Patroni automatic failover | Released in `v0.13.0` |
-| Stable primary endpoint through HAProxy | Local acceptance passed for `v0.14.0` |
+| Stable primary endpoint through HAProxy | Released in `v0.14.0` |
+| Patroni backup and PITR across failover timelines | Local acceptance passed for `v0.15.0` |
 
 See the [delivery roadmap](docs/roadmap.md) for milestone scope,
 [contribution guidelines](CONTRIBUTING.md) for the PR workflow, and

@@ -2,23 +2,35 @@
 # Runs only inside the restore container, which mounts no primary data volume.
 set -euo pipefail
 
-if (( $# < 1 || $# > 2 )) || [[ ! "$1" =~ ^[0-9]{8}-[0-9]{6}F$ ]]; then
+if (( $# < 1 || $# > 3 )) || [[ ! "$1" =~ ^[0-9]{8}-[0-9]{6}F$ ]]; then
     echo 'Provide an explicit full backup label, for example 20260928-120000F.' >&2
+    exit 2
+fi
+
+timeline=current
+if (( $# == 3 )); then
+    if [[ ! "$3" =~ ^[1-9][0-9]{0,9}$ ]] || (( $3 > 4294967295 )); then
+        echo 'Recovery timeline must be an integer from 1 to 4294967295.' >&2
+        exit 2
+    fi
+    timeline=$3
+elif (( $# == 2 )) && [[ ${PGDR_REPOSITORY:-local} == patroni ]]; then
+    echo 'Patroni WAL recovery requires an explicit destination timeline.' >&2
     exit 2
 fi
 
 # Select the recovery boundary: backup consistency, latest WAL, or UTC time.
 recovery_args=(--type=immediate --target-action=promote)
-if (( $# == 2 )) && [[ "$2" == latest-wal ]]; then
-    recovery_args=(--type=default --target-timeline=current)
-elif (( $# == 2 )); then
+if (( $# >= 2 )) && [[ "$2" == latest-wal ]]; then
+    recovery_args=(--type=default "--target-timeline=$timeline")
+elif (( $# >= 2 )); then
     if [[ ! "$2" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}\ [0-9]{2}:[0-9]{2}:[0-9]{2}(\.[0-9]{1,6})?\+00:00$ ]] ||
         ! date --date="$2" +%s >/dev/null 2>&1; then
         echo 'Recovery time must be a valid UTC timestamp: YYYY-MM-DD HH:MM:SS[.ffffff]+00:00.' >&2
         exit 2
     fi
     # Time targets are inclusive by default in the pinned pgBackRest version.
-    recovery_args=(--type=time "--target=$2" --target-timeline=current --target-action=promote)
+    recovery_args=(--type=time "--target=$2" "--target-timeline=$timeline" --target-action=promote)
 fi
 
 # Never overwrite an existing restore target.
@@ -30,4 +42,4 @@ fi
 
 # Recovery starts with archiving disabled so it cannot write back to the repository.
 exec pgbackrest --stanza=orders --set="$1" "${recovery_args[@]}" \
-    --archive-mode=off restore
+    --pg1-path="$target" --archive-mode=off restore

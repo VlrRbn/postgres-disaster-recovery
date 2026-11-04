@@ -1,6 +1,7 @@
 """Verify automatic failover and quorum behavior in a disposable Patroni cluster."""
 
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -10,6 +11,7 @@ import socket
 import ssl
 import struct
 import subprocess
+import sys
 import tempfile
 import time
 
@@ -32,6 +34,18 @@ class Cluster:
         if check and result.returncode:
             raise RuntimeError(f'Compose {args[0]} failed:\n{result.stdout[-2000:]}\n{result.stderr[-4000:]}')
         return result
+
+    def cleanup(self):
+        result = self.compose('--profile', 'restore', '--profile', 'tools',
+                              'down', '--volumes', '--remove-orphans', check=False)
+        if result.returncode:
+            raise RuntimeError(f'Cleanup failed for {self.project}; private files retained at {self.directory}')
+        for resource in ('container', 'volume', 'network'):
+            remaining = subprocess.check_output(['docker', resource, 'ls', '-q', '--filter',
+                                                 f'label=com.docker.compose.project={self.project}'],
+                                                text=True, timeout=15)
+            if remaining.strip():
+                raise RuntimeError(f'Cleanup left {resource} resources for {self.project}; inspect before retrying')
 
     def sql_result(self, node: str, query: str):
         return self.compose('exec', '-T', '--user', 'postgres',
@@ -56,6 +70,38 @@ class Cluster:
         if result.returncode:
             raise RuntimeError(f'HAProxy SQL failed: {result.stderr.strip()}')
         return result.stdout.strip()
+
+    def operation(self, script: str, *arguments: str, check: bool = True, **settings):
+        print(f'Running {script} {" ".join(arguments)}', flush=True)
+        result = subprocess.run(['bash', str(ROOT / 'scripts' / script), *arguments], cwd=ROOT,
+                                env=dict(self.env, PGDR_REPOSITORY='patroni', **settings),
+                                text=True, capture_output=True, timeout=240)
+        if check and result.returncode:
+            raise RuntimeError(f'{script} {arguments} failed:\n{result.stdout[-2000:]}\n{result.stderr[-5000:]}')
+        return result
+
+    def dynamic_config(self, node: str, patch=None) -> dict:
+        code = '''
+import base64, json, ssl, sys
+from urllib.request import Request, urlopen
+from patroni_config import CONFIG, TLS
+auth=json.loads(CONFIG.read_text())['restapi']['authentication']
+token=base64.b64encode((auth['username']+':'+auth['password']).encode()).decode()
+patch=json.loads(sys.argv[1])
+request=Request('https://localhost:8008/config',
+    data=None if patch is None else json.dumps(patch).encode(),
+    method='GET' if patch is None else 'PATCH',
+    headers={'Content-Type':'application/json', 'Authorization':'Basic '+token})
+with urlopen(request, context=ssl.create_default_context(cafile=TLS+'/ca.crt'), timeout=10) as response:
+    print(json.dumps(json.load(response)))'''
+        result = self.compose('exec', '-T', '--user', 'postgres', node, 'python3', '-c',
+                              'import sys; sys.path.insert(0, "/opt")\n' + code, json.dumps(patch))
+        return json.loads(result.stdout)
+
+    def repository_digest(self) -> str:
+        result = self.compose('run', '--rm', '--no-deps', '-T', '--entrypoint', 'bash',
+                              'repository', '-c', 'find /var/lib/pgbackrest -type f -exec sha256sum {} + | sort')
+        return hashlib.sha256(result.stdout.encode()).hexdigest()
 
     def inspect(self, node: str) -> dict:
         return json.loads(subprocess.check_output(['docker', 'inspect', self.container(node)], text=True))[0]
@@ -378,25 +424,162 @@ def exercise(cluster: Cluster) -> dict:
             'final_order_count': 22}
 
 
+def exercise_backup(cluster: Cluster) -> dict:
+    print('[1/8] Upgrade existing DCS archive settings while retaining PostgreSQL data', flush=True)
+    cluster.operation('patroni.sh', 'up')
+    wait_for('one primary and one streaming replica', cluster.healthy)
+    source = cluster.leader()
+    cluster.endpoint_sql("INSERT INTO orders (reference, amount_cents) VALUES ('patroni-dr-001',1500),('patroni-dr-002',2500)")
+    wait_for('initial orders reach both nodes', cluster.compare)
+    original_rows = cluster.sql(source, 'COPY (SELECT * FROM orders ORDER BY reference) TO STDOUT WITH CSV')
+    system_id = cluster.sql(source, 'SELECT system_identifier FROM pg_control_system()')
+    # Recreate the archive-disabled DCS settings of v0.14.0 on this disposable cluster.
+    cluster.dynamic_config(source, {'postgresql': {'parameters': {
+        'archive_mode': 'off', 'archive_command': '', 'archive_timeout': '0'}}})
+    cluster.compose('down')
+    cluster.operation('patroni.sh', 'up')
+    wait_for('archive-disabled retained cluster is ready', cluster.healthy)
+    source = cluster.leader()
+    assert cluster.sql(source, 'SHOW archive_mode') == 'off'
+    before = cluster.dynamic_config(source)['postgresql']['parameters']
+    cluster.operation('patroni.sh', 'backup-configure')
+    after = cluster.dynamic_config(source)['postgresql']['parameters']
+    changed = {'archive_mode', 'archive_command', 'archive_timeout'}
+    assert {k: v for k, v in before.items() if k not in changed} == {k: v for k, v in after.items() if k not in changed}
+    cluster.compose('down')
+    cluster.operation('patroni.sh', 'up')
+    wait_for('retained cluster starts with archiving enabled', cluster.healthy)
+    source = cluster.leader()
+    for node in NODES:
+        assert cluster.sql(node, 'SHOW archive_mode') == 'on'
+        assert cluster.sql(node, 'SELECT system_identifier FROM pg_control_system()') == system_id
+        assert cluster.sql(node, 'COPY (SELECT * FROM orders ORDER BY reference) TO STDOUT WITH CSV') == original_rows
+    print('PASS: DCS archive upgrade preserves unrelated settings, system identity and exact rows', flush=True)
+
+    print('[2/8] Create and verify a full backup on the current primary', flush=True)
+    cluster.operation('backup.sh', 'init')
+    empty = cluster.operation('backup.sh', 'verify', check=False)
+    assert empty.returncode != 0 and 'completed backup' in empty.stderr, empty.stdout + empty.stderr
+    cluster.operation('backup.sh', 'full')
+    info = json.loads(cluster.compose('run', '--rm', '--no-deps', '-T', 'repository',
+                                      '--log-level-console=off', '--output=json', 'info').stdout)[0]
+    assert info['status']['code'] == 0 and len(info['backup']) == 1
+    backup = info['backup'][0]
+    label = backup['label']
+    backup_timeline = int(backup['archive']['start'][:8], 16)
+    print(f'PASS: full backup {label} on timeline {backup_timeline}', flush=True)
+
+    print('[3/8] Promote the replica and archive new-timeline writes', flush=True)
+    replica = next(node for node in NODES if node != source)
+    cluster.compose('kill', '--signal', 'SIGKILL', source)
+    wait_for('replica is promoted', lambda: cluster.probe(replica, 'primary'))
+    wait_for('HAProxy routes the promoted primary', lambda: cluster.endpoint_is_primary(replica))
+    cluster.endpoint_sql("INSERT INTO orders (reference, amount_cents) VALUES ('patroni-dr-after-failover',3500)")
+    timeline = int(cluster.sql(replica, 'SELECT left(pg_walfile_name(pg_current_wal_lsn()),8)'), 16)
+    assert timeline > backup_timeline
+    expected_rows = cluster.sql(replica, 'COPY (SELECT * FROM orders ORDER BY reference) TO STDOUT WITH CSV')
+    target = cluster.sql(replica, "SELECT to_char(clock_timestamp() AT TIME ZONE 'UTC','YYYY-MM-DD HH24:MI:SS.US') || '+00:00'")
+    print(f'PASS: new write on timeline {timeline}; recovery target {target}', flush=True)
+    cluster.operation('backup.sh', 'full')
+    promoted_info = json.loads(cluster.compose('run', '--rm', '--no-deps', '-T', 'repository',
+                                               '--log-level-console=off', '--output=json', 'info').stdout)[0]
+    assert len(promoted_info['backup']) == 2
+    promoted_backup = next(item for item in promoted_info['backup'] if item['label'] != label)
+    assert int(promoted_backup['archive']['start'][:8], 16) == timeline
+    print(f'PASS: new primary created full backup {promoted_backup["label"]}; recovery still selects {label}', flush=True)
+
+    print('[4/8] Delete an order, add a late order, and flush the archive', flush=True)
+    cluster.endpoint_sql("DELETE FROM orders WHERE reference='patroni-dr-002'")
+    cluster.endpoint_sql("INSERT INTO orders (reference, amount_cents) VALUES ('patroni-dr-too-late',4500)")
+    cluster.operation('backup.sh', 'check')
+    assert cluster.sql(replica, "SELECT count(*) FROM orders WHERE reference='patroni-dr-002'") == '0'
+    cluster.compose('start', source)
+    wait_for('former leader rejoins with the deletion', cluster.healthy)
+    wait_for('both live nodes contain the deletion and late order', cluster.compare)
+    cluster.operation('backup.sh', 'check')
+
+    print('[5/8] Stop the source cluster and inspect backups without a database', flush=True)
+    cluster.compose('down')
+    assert all(not cluster.container(node) for node in NODES)
+    offline = cluster.operation('backup.sh', 'info')
+    assert label in offline.stdout and promoted_backup['label'] in offline.stdout
+    cluster.operation('backup.sh', 'verify')
+    digest = cluster.repository_digest()
+    settings = {'BACKUP_LABEL': label, 'RECOVERY_TIME': target,
+                'RECOVERY_TIMELINE': str(timeline), 'RESTORE_WAIT_SECONDS': '30'}
+    print('PASS: backup metadata and verification work with all live services removed', flush=True)
+
+    print('[6/8] Reject an unreachable time and refuse to overwrite the failed target', flush=True)
+    invalid = cluster.operation('restore.sh', 'time', check=False, **dict(settings, RECOVERY_TIMELINE='0'))
+    assert invalid.returncode != 0 and 'RECOVERY_TIMELINE' in invalid.stderr
+    future = datetime.fromisoformat(target) + timedelta(days=1)
+    future_time = future.strftime('%Y-%m-%d %H:%M:%S.%f+00:00')
+    failed = cluster.operation('restore.sh', 'time', check=False, **dict(settings, RECOVERY_TIME=future_time))
+    assert failed.returncode != 0 and 'recovery ended before configured recovery target was reached' in failed.stderr, failed.stderr[-4000:]
+    existing = cluster.operation('restore.sh', 'time', check=False, **settings)
+    assert existing.returncode != 0 and 'Restore container already exists' in existing.stderr
+    cluster.compose('rm', '--stop', '--force', 'restore')
+    nonempty = cluster.operation('restore.sh', 'time', check=False, **settings)
+    assert nonempty.returncode != 0 and 'Restore target is not empty' in nonempty.stdout + nonempty.stderr
+    subprocess.run(['docker', 'volume', 'rm', f'{cluster.project}_pgrestore'], check=True, capture_output=True, timeout=20)
+    print('PASS: invalid timeline, unreachable target, existing container and nonempty volume are rejected', flush=True)
+
+    print('[7/8] Restore the pre-failover backup onto the new timeline before deletion', flush=True)
+    cluster.operation('restore.sh', 'time', **settings)
+    actual = cluster.sql('restore', 'COPY (SELECT * FROM orders ORDER BY reference) TO STDOUT WITH CSV')
+    assert actual == expected_rows, (actual, expected_rows)
+    assert cluster.sql('restore', 'SELECT pg_is_in_recovery()') == 'f'
+    assert cluster.sql('restore', 'SHOW archive_mode') == 'off'
+    data = cluster.inspect('restore')
+    assert data['HostConfig']['NetworkMode'] == 'none' and not data['HostConfig']['PortBindings']
+    mounts = {m['Destination']: m for m in data['Mounts']}
+    assert not mounts['/var/lib/pgbackrest']['RW']
+    assert mounts['/var/lib/postgresql/data']['Name'] == f'{cluster.project}_pgrestore'
+    assert all(m.get('Name') not in (f'{cluster.project}_pg1_data', f'{cluster.project}_pg2_data') for m in data['Mounts'])
+    assert not any(m['Destination'].startswith('/run/secrets') for m in data['Mounts'])
+    assert cluster.repository_digest() == digest
+    cluster.sql('restore', "INSERT INTO orders (reference,amount_cents) VALUES ('patroni-dr-restored-write',5500)")
+    print('PASS: three exact orders recovered, including the deleted order and post-failover write; late order excluded', flush=True)
+
+    print('[8/8] Recreate only the restore container and preserve restored writes', flush=True)
+    cluster.compose('rm', '--stop', '--force', 'restore')
+    cluster.operation('restore.sh', 'start')
+    assert cluster.sql('restore', 'SELECT count(*) FROM orders') == '4'
+    assert cluster.sql('restore', 'SHOW archive_mode') == 'off'
+    assert cluster.repository_digest() == digest
+    return {'schema_version': 1, 'status': 'verified', 'project': cluster.project,
+            'scenario': 'patroni_cross_timeline_pitr', 'backup_label': label,
+            'post_failover_backup_label': promoted_backup['label'],
+            'post_failover_backup_timeline': timeline,
+            'backup_timeline': backup_timeline, 'recovery_timeline': timeline,
+            'recovery_time_utc': target, 'recovered_orders': 3, 'final_order_count': 4,
+            'source_system_identifier': system_id, 'repository_sha256': digest,
+            'archive_dcs_upgrade': 'verified', 'unreachable_target_rejected': True,
+            'source_services_removed_during_restore': True}
+
+
 def main():
+    if sys.argv[1:] not in ([], ['--backup']):
+        raise SystemExit('Usage: patroni_acceptance.py [--backup]')
+    backup_mode = sys.argv[1:] == ['--backup']
     directory = tempfile.mkdtemp(prefix='pgdr-patroni-')
     cluster = Cluster(directory)
     try:
-        report = exercise(cluster)
-        output = ROOT / '.local/reports' / f'{cluster.project}-patroni.json'
+        report = exercise_backup(cluster) if backup_mode else exercise(cluster)
+        suffix = 'patroni-backup' if backup_mode else 'patroni'
+        output = ROOT / '.local/reports' / f'{cluster.project}-{suffix}.json'
         output.parent.mkdir(parents=True, exist_ok=True)
         output.write_text(json.dumps(report, indent=2) + '\n')
-        journal = output.with_suffix('.jsonl')
-        journal.write_bytes((cluster.directory / 'acknowledgments.jsonl').read_bytes())
-        print(f'PASS: automatic failover, 25 acknowledged / 20 recovered / 5 lost; report: {output}', flush=True)
+        journal = cluster.directory / 'acknowledgments.jsonl'
+        if journal.exists():
+            output.with_suffix('.jsonl').write_bytes(journal.read_bytes())
     except BaseException:
         print(cluster.compose('logs', '--no-color', '--tail=50', check=False).stdout, flush=True)
         raise
     finally:
-        cleanup = cluster.compose('down', '--volumes', '--remove-orphans', check=False)
-        if cleanup.returncode:
-            raise RuntimeError(f'Cleanup failed for {cluster.project}; private files retained at {directory}')
+        cluster.cleanup()
         shutil.rmtree(directory)
+    print(f'PASS: {report["scenario"]}; report: {output}', flush=True)
 
 
 if __name__ == '__main__':

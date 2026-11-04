@@ -46,6 +46,7 @@ if [[ ${1:-} == --patroni ]]; then
         exit 2
     fi
     export PGDR_PATRONI_DIR=${PGDR_PATRONI_DIR:-$root/.local/patroni}
+    export PGDR_PATRONI_IMAGE="$project-postgres:local"
     export PGDR_PATRONI_UID PGDR_PATRONI_GID
     PGDR_PATRONI_UID=$(id -u)
     PGDR_PATRONI_GID=$(id -g)
@@ -65,6 +66,9 @@ if [[ ${1:-} == --replication ]]; then
 fi
 # Select the configuration and defaults for one isolated runtime.
 case "${PGDR_REPOSITORY:-local}" in
+    patroni)
+        exec bash "$root/scripts/compose.sh" --patroni "$@"
+        ;;
     local)
         project=${PGDR_PROJECT:-postgres-dr-local}
         config="$root/compose.yaml"
@@ -80,7 +84,7 @@ case "${PGDR_REPOSITORY:-local}" in
         export PGDR_S3_DIR=${PGDR_S3_DIR:-$root/.local/s3}
         export PGDR_SECRET_FILE=${PGDR_SECRET_FILE:-$PGDR_S3_DIR/postgres_password}
         ;;
-    *) echo 'PGDR_REPOSITORY must be local or s3.' >&2; exit 2 ;;
+    *) echo 'PGDR_REPOSITORY must be local, s3 or patroni.' >&2; exit 2 ;;
 esac
 # Validate the project before forwarding any operator command to Docker.
 if [[ ! "$project" =~ ^postgres-dr-[a-z0-9-]+$ ]]; then

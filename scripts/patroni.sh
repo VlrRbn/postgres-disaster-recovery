@@ -22,11 +22,9 @@ running() {
     [[ -n "$container" && $(docker inspect "$container" --format '{{.State.Running}}') == true ]]
 }
 
-open_sql() {
+find_node() {
     local requested=$1 node result
-    shift
-    local matches=() tty_flags=()
-    if [[ ! -t 0 || ! -t 1 ]]; then tty_flags=(-T); fi
+    local matches=()
     for node in pg1 pg2; do
         if running "$node"; then
             result=0
@@ -39,7 +37,16 @@ open_sql() {
         fi
     done
     [[ ${#matches[@]} == 1 ]] || { echo "Expected one $requested; found ${#matches[@]}. Run make patroni-status." >&2; exit 1; }
-    "${compose[@]}" exec "${tty_flags[@]}" --user postgres "${matches[0]}" psql -X -v ON_ERROR_STOP=1 -U postgres -d orders "$@"
+    printf '%s\n' "${matches[0]}"
+}
+
+open_sql() {
+    local requested=$1 node
+    shift
+    local tty_flags=()
+    if [[ ! -t 0 || ! -t 1 ]]; then tty_flags=(-T); fi
+    node=$(find_node "$requested")
+    "${compose[@]}" exec "${tty_flags[@]}" --user postgres "$node" psql -X -v ON_ERROR_STOP=1 -U postgres -d orders "$@"
 }
 
 endpoint_client() (
@@ -62,10 +69,12 @@ case "${1:-}" in
     init)
         psql -X -v ON_ERROR_STOP=1 -U postgres -d postgres -c 'CREATE DATABASE orders;'
         psql -X -v ON_ERROR_STOP=1 -U postgres -d orders -f /opt/orders.sql
+        pgbackrest --stanza=orders stanza-create
         ;;
     up)
         bash "$root/scripts/setup.sh" patroni
-        "${compose[@]}" up --build --detach --wait --wait-timeout 180
+        "${compose[@]}" build pg1
+        "${compose[@]}" up --no-build --detach --wait --wait-timeout 180
         ;;
     status)
         "${compose[@]}" ps --all
@@ -80,11 +89,16 @@ case "${1:-}" in
         ;;
     primary-psql) shift; open_sql primary "$@" ;;
     standby-psql) shift; open_sql replica "$@" ;;
+    primary-node) find_node primary ;;
+    backup-configure)
+        node=$(find_node primary)
+        "${compose[@]}" exec -T --user postgres "$node" python3 /opt/patroni_config.py archive-enable
+        ;;
     endpoint-psql)
         shift
         tty_flags=()
         if [[ ! -t 0 || ! -t 1 ]]; then tty_flags=(-T); fi
         "${compose[@]}" run --rm --no-deps "${tty_flags[@]}" --user "$(id -u):$(id -g)" client "$@"
         ;;
-    *) echo 'Usage: patroni.sh up|status|primary-psql|standby-psql|endpoint-psql' >&2; exit 2 ;;
+    *) echo 'Usage: patroni.sh up|status|primary-psql|standby-psql|endpoint-psql|primary-node|backup-configure' >&2; exit 2 ;;
 esac
