@@ -1,16 +1,22 @@
 """Prepare private Patroni configuration and check its verified HTTPS API."""
 
+import base64
 import json
 import os
 from pathlib import Path
 import ssl
 import sys
 from urllib.error import HTTPError, URLError
-from urllib.request import urlopen
+from urllib.request import Request, urlopen
 
 
 TLS = '/var/lib/postgresql/patroni/tls'
 CONFIG = Path('/var/lib/postgresql/patroni/patroni.json')
+ARCHIVE_PARAMETERS = {
+    'archive_mode': 'on',
+    'archive_command': 'pgbackrest --stanza=orders archive-push %p',
+    'archive_timeout': '60s',
+}
 
 
 def configuration(node: str, superuser: str, replication: str, api: str) -> dict:
@@ -46,7 +52,7 @@ def configuration(node: str, superuser: str, replication: str, api: str) -> dict
                         'ssl': 'on', 'ssl_min_protocol_version': 'TLSv1.2',
                         'ssl_cert_file': f'{TLS}/server.crt',
                         'ssl_key_file': f'{TLS}/server.key',
-                        'ssl_ca_file': f'{TLS}/ca.crt', 'archive_mode': 'off',
+                        'ssl_ca_file': f'{TLS}/ca.crt', **ARCHIVE_PARAMETERS,
                     },
                 },
             },
@@ -95,6 +101,19 @@ def probe(endpoint: str) -> int:
 
 
 def main() -> int:
+    if sys.argv[1:] == ['archive-enable']:
+        settings = json.loads(CONFIG.read_text())
+        auth = settings['restapi']['authentication']
+        token = base64.b64encode(f'{auth["username"]}:{auth["password"]}'.encode()).decode()
+        payload = json.dumps({'postgresql': {'parameters': ARCHIVE_PARAMETERS}}).encode()
+        request = Request('https://localhost:8008/config', data=payload, method='PATCH',
+                          headers={'Content-Type': 'application/json', 'Authorization': f'Basic {token}'})
+        with urlopen(request, context=ssl.create_default_context(cafile=f'{TLS}/ca.crt'), timeout=10) as response:
+            updated = json.load(response)
+        if any(updated['postgresql']['parameters'].get(key) != value for key, value in ARCHIVE_PARAMETERS.items()):
+            raise ValueError('Patroni did not retain the requested archive parameters')
+        print('WAL archiving configured in DCS. Restart the runtime with make patroni-down and make patroni-up, then run make patroni-backup-init.')
+        return 0
     if sys.argv[1:] == ['write']:
         credentials = [Path(f'/run/secrets/{name}_password').read_text().strip()
                        for name in ('postgres', 'replication', 'patroni_api')]
@@ -107,7 +126,7 @@ def main() -> int:
         return 0
     if len(sys.argv) == 3 and sys.argv[1] == 'probe':
         return probe(sys.argv[2])
-    raise ValueError('Usage: patroni_config.py write | probe {primary|replica|health}')
+    raise ValueError('Usage: patroni_config.py write | archive-enable | probe {primary|replica|health}')
 
 
 if __name__ == '__main__':

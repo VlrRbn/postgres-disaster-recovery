@@ -111,3 +111,34 @@ class PatroniConfigurationTests(unittest.TestCase):
             result = subprocess.run(command, env=env, capture_output=True, timeout=30)
             self.assertNotEqual(result.returncode, 0)
             self.assertFalse((Path(directory) / 'tls/etcd2.key').exists())
+
+
+class PatroniRestoreValidationTests(unittest.TestCase):
+    def restore(self, timeline, recovery_time='2026-11-03 12:00:00+00:00'):
+        env = dict(os.environ, PGDR_REPOSITORY='patroni', BACKUP_LABEL='20261103-110000F',
+                   RECOVERY_TIME=recovery_time)
+        env.pop('RECOVERY_TIMELINE', None)
+        if timeline is not None:
+            env['RECOVERY_TIMELINE'] = timeline
+        return subprocess.run(['bash', str(ROOT / 'scripts/restore.sh'), 'time'],
+                              env=env, capture_output=True, text=True, timeout=10)
+
+    def test_pitr_requires_an_explicit_valid_destination_timeline(self):
+        for timeline in (None, '0', '-1', 'latest', '02', '4294967296'):
+            with self.subTest(timeline=timeline):
+                result = self.restore(timeline)
+                self.assertEqual(result.returncode, 2)
+                self.assertIn('RECOVERY_TIMELINE', result.stderr)
+
+    def test_invalid_time_is_rejected_before_runtime_access(self):
+        result = self.restore('2', recovery_time='not-a-timestamp')
+        self.assertEqual(result.returncode, 2)
+        self.assertIn('valid UTC timestamp', result.stderr)
+
+    def test_in_container_restore_also_requires_explicit_timeline(self):
+        result = subprocess.run(['bash', str(ROOT / 'scripts/restore-volume.sh'),
+                                 '20261103-110000F', '2026-11-03 12:00:00+00:00'],
+                                env=dict(os.environ, PGDR_REPOSITORY='patroni'),
+                                capture_output=True, text=True, timeout=10)
+        self.assertEqual(result.returncode, 2)
+        self.assertIn('explicit destination timeline', result.stderr)

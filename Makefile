@@ -5,6 +5,9 @@
 .PHONY: replication-tls-setup
 .PHONY: replication-reseed
 .PHONY: patroni-setup patroni-up patroni-down patroni-status patroni-primary-psql patroni-standby-psql patroni-endpoint-psql patroni-acceptance
+.PHONY: patroni-backup-configure patroni-backup-init patroni-backup-check patroni-backup patroni-backup-info patroni-backup-verify patroni-backup-acceptance
+.PHONY: patroni-image
+.PHONY: patroni-restore patroni-restore-time patroni-restore-up patroni-restore-psql patroni-restore-down
 .PHONY: setup check image up psql down acceptance backup-init backup-check backup backup-info backup-verify backup-health backup-health-acceptance restore restore-time restore-latest-wal restore-up restore-psql restore-down pgadmin-up pgadmin-down pgadmin-acceptance rpo-acceptance s3-setup s3-up s3-down s3-psql s3-backup s3-backup-info s3-backup-check s3-backup-health s3-acceptance s3-restore s3-restore-time s3-restore-latest-wal s3-restore-up s3-restore-psql s3-restore-down replication-up replication-down replication-primary-psql replication-standby-psql replication-status replication-acceptance replication-switchover replication-rejoin
 .PHONY: schedule-install schedule-enable schedule-disable schedule-remove schedule-status schedule-check schedule-acceptance scheduled-backup scheduled-backup-health
 
@@ -109,8 +112,8 @@ patroni-setup: ## Generate or validate private Patroni passwords and TLS identit
 patroni-up: ## Start or resume two Patroni nodes and a three-member etcd cluster
 	bash scripts/patroni.sh up
 
-patroni-down: ## Remove Patroni containers/network; retain both databases, etcd state and TLS files
-	bash scripts/compose.sh --patroni down
+patroni-down: ## Remove Patroni and restore containers/networks; retain all data and private files
+	bash scripts/compose.sh --patroni --profile restore down
 
 patroni-status: ## Show cluster containers and current Patroni member roles
 	bash scripts/patroni.sh status
@@ -126,6 +129,47 @@ patroni-endpoint-psql: ## Open SQL through HAProxy with verified end-to-end Post
 
 patroni-acceptance: ## Verify automatic failover, acknowledged loss, rejoin and etcd quorum
 	python3 scripts/patroni_acceptance.py
+
+##@ Patroni backup and restore
+patroni-image: ## Build the shared Patroni/pgBackRest image without starting databases
+	bash scripts/compose.sh --patroni build pg1
+
+patroni-backup-configure: ## Enable WAL archive settings in existing DCS; restart the runtime afterward
+	bash scripts/patroni.sh backup-configure
+
+patroni-backup-init: ## Initialize or check the Patroni repository using the current primary
+	PGDR_REPOSITORY=patroni bash scripts/backup.sh init
+
+patroni-backup-check: ## Check WAL delivery from the current Patroni primary
+	PGDR_REPOSITORY=patroni bash scripts/backup.sh check
+
+patroni-backup: ## Create and verify a full backup from the current Patroni primary
+	PGDR_REPOSITORY=patroni bash scripts/backup.sh full
+
+patroni-backup-info: ## Inspect Patroni backups with read-only repository access; no live database required
+	PGDR_REPOSITORY=patroni bash scripts/backup.sh info
+
+patroni-backup-verify: ## Verify Patroni backup files with read-only repository access
+	PGDR_REPOSITORY=patroni bash scripts/backup.sh verify
+
+patroni-restore: ## Restore explicit BACKUP_LABEL to a separate empty volume at backup consistency
+	PGDR_REPOSITORY=patroni bash scripts/restore.sh restore
+
+patroni-restore-time: ## Restore BACKUP_LABEL to RECOVERY_TIME on explicit RECOVERY_TIMELINE
+	PGDR_REPOSITORY=patroni bash scripts/restore.sh time
+
+patroni-restore-up: ## Resume the isolated restored Patroni data without starting Patroni
+	PGDR_REPOSITORY=patroni bash scripts/restore.sh start
+
+patroni-restore-psql: ## Open local-socket SQL in the isolated restored database
+	bash scripts/compose.sh --patroni exec --user postgres restore psql -X -U postgres -d orders
+
+patroni-restore-down: ## Remove only the restore container; retain its data volume
+	bash scripts/compose.sh --patroni stop restore
+	bash scripts/compose.sh --patroni rm --force restore
+
+patroni-backup-acceptance: ## Verify backups, failover WAL, cross-timeline PITR and restore guards
+	python3 scripts/patroni_acceptance.py --backup
 
 ##@ Image
 image: ## Build the PostgreSQL image with pgBackRest

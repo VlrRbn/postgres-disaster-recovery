@@ -40,10 +40,12 @@ make patroni-up
 Choose an unused host port when running several projects. The default is
 `127.0.0.1:6432`; PostgreSQL and etcd do not publish host ports.
 
-Each project has five data volumes: two databases and three etcd stores. It uses
+Each project has two database volumes, three etcd stores, a shared local backup
+repository, and a separate restore volume when recovery is used. It uses
 its own data, configuration, and certificates. The existing manual replication
-and local/S3 backup commands target separate PostgreSQL clusters; they do not
-back up or change this Patroni cluster.
+and local/S3 backup commands target separate PostgreSQL clusters. Use the
+`patroni-backup-*` and `patroni-restore-*` commands for this runtime; see
+[Patroni backup and recovery](patroni-recovery.md).
 
 `patroni-status` should show one `Leader` and one `Replica` in state `streaming`.
 Either `pg1` or `pg2` can become leader. The three etcd members need a majority
@@ -137,7 +139,8 @@ digest. The Patroni image pins Patroni `4.1.5` and `psycopg2-binary` `2.9.11` an
 that building did not change the PostgreSQL version. Transitive Python and APT
 dependencies resolve from live repositories; byte-identical rebuilds are not
 guaranteed. Only the Dockerfile enters the image build context. HAProxy
-`3.2.26-alpine` is also pinned by its multi-platform digest.
+`3.2.26-alpine` is also pinned by its multi-platform digest. The Patroni image
+includes the same pgBackRest `2.59.1` package as the standalone backup runtime.
 
 ## Stop A Leader And Observe Failover
 
@@ -197,6 +200,11 @@ container can still have no eligible primary; a SQL connection checks actual
 write-route availability. During majority loss the endpoint rejects connections
 until a confirmed primary becomes available again.
 
+Fresh clusters also enable pgBackRest WAL archiving. For a cluster created
+before `v0.15.0`, follow the explicit DCS configuration and restart steps in
+[backup setup](patroni-recovery.md#upgrade-an-existing-cluster). Backup commands
+select the current primary; restore uses a separate, isolated PostgreSQL process.
+
 All components share one Docker host. Watchdog devices and external host fencing
 are not configured. Container/DCS checks do not prove safety under a suspended
 Patroni process, kernel failure, or host loss. Asynchronous replication can lose
@@ -210,11 +218,12 @@ bash scripts/compose.sh --patroni logs --follow --tail 50
 make patroni-down
 ```
 
-`patroni-down` removes containers and the network, retaining database/etcd volumes,
-passwords, and certificates. `patroni-up` resumes that state. Bootstrap DCS settings
-only apply when the cluster is first created; change existing cluster settings
-through Patroni. `make stop-all` also stops this checkout's Patroni containers while
-retaining state.
+`patroni-down` removes live and restore containers and both networks, retaining
+database, etcd, backup, and restore volumes, passwords, and certificates.
+`patroni-up` resumes the live cluster; `patroni-restore-up` resumes the separate
+recovered database. Bootstrap DCS settings only apply when the cluster is first created;
+change existing cluster settings through Patroni. `make stop-all` also stops this
+checkout's Patroni containers while retaining state.
 
 ## Acceptance
 

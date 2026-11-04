@@ -18,7 +18,8 @@ names. Each release marks a completed and verified milestone.
 | TLS For Streaming Replication | `v0.11.0` | Released |
 | Standby Recovery After WAL Loss | `v0.12.0` | Released |
 | Patroni Automatic Failover | `v0.13.0` | Released |
-| Stable Primary Endpoint | `v0.14.0` | Local acceptance passed |
+| Stable Primary Endpoint | `v0.14.0` | Released |
+| Patroni Backup And Point-In-Time Recovery | `v0.15.0` | Local acceptance passed |
 
 ## Physical Backup Delivery Steps
 
@@ -150,13 +151,26 @@ quorum changes, and retained-state recreation. See [Patroni](patroni.md).
 
 Released in `v0.13.0` after merge and successful main CI.
 
-The next PR adds HAProxy as the stable primary endpoint. Verified HTTPS role
+The endpoint PR adds HAProxy as the stable primary endpoint. Verified HTTPS role
 checks select the leader; SQL TLS passes through to PostgreSQL. The existing
 acceptance covers connection loss, new connections after promotion, unavailable
 routing during quorum loss, and retained-state recreation. Certificate setup
 extends existing node identities while preserving the CA and private keys.
 Both runtimes remain single-host deployments with their documented fencing and
 asynchronous durability limits.
+
+The endpoint was released in `v0.14.0` after successful main CI.
+
+## Patroni Recovery Delivery
+
+One PR connects the Patroni runtime to its own pgBackRest repository. Current-primary
+selection follows role changes, and WAL archiving continues on the promoted
+timeline. A pre-failover full backup is recovered to a post-failover point before
+deletion, using an explicit target timeline and a separate data volume.
+Acceptance removes live services before restore, rejects unreachable targets
+and unsafe retries, compares exact rows, and checks repository immutability.
+Existing DCS archive settings are upgraded without replacing cluster identity
+or unrelated configuration. See [Patroni recovery](patroni-recovery.md).
 
 ## Acceptance Contracts
 
@@ -194,4 +208,4 @@ asynchronous durability limits.
 - Claim backup recovery only after restoration has been exercised.
 
 Local retention rollover, independent external monitoring, application retry
-handling, and backup integration for the Patroni cluster are possible later capabilities.
+handling, and off-host storage for Patroni backups are possible later capabilities.

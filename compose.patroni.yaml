@@ -25,8 +25,7 @@ x-etcd: &etcd
   networks: [patroni]
 
 x-postgres: &postgres
-  build:
-    context: ./docker/patroni
+  image: '${PGDR_PATRONI_IMAGE:-postgres-dr-patroni-postgres:local}'
   entrypoint: [bash, /opt/patroni.sh, start-node]
   command: []
   depends_on:
@@ -46,6 +45,64 @@ x-postgres: &postgres
   networks: [patroni]
 
 services:
+  repository:
+    profiles: [tools]
+    image: '${PGDR_PATRONI_IMAGE:-postgres-dr-patroni-postgres:local}'
+    pull_policy: never
+    user: postgres
+    entrypoint: [pgbackrest, --stanza=orders]
+    command: []
+    volumes:
+      - pgrepo:/var/lib/pgbackrest:ro
+      - ./pgbackrest/patroni.conf:/etc/pgbackrest/pgbackrest.conf:ro
+    network_mode: none
+  restore:
+    profiles: [restore]
+    image: '${PGDR_PATRONI_IMAGE:-postgres-dr-patroni-postgres:local}'
+    pull_policy: never
+    user: postgres
+    entrypoint: [postgres]
+    command:
+      - -D
+      - /var/lib/postgresql/data
+      # Ignore restored Patroni settings and TLS paths; keep pgBackRest's auto.conf recovery settings.
+      - -c
+      - config_file=/dev/null
+      - -c
+      - data_directory=/var/lib/postgresql/data
+      - -c
+      - hba_file=/var/lib/postgresql/data/pg_hba.conf
+      - -c
+      - ident_file=/var/lib/postgresql/data/pg_ident.conf
+      - -c
+      - ssl=off
+      - -c
+      - archive_mode=off
+      - -c
+      - archive_command=
+      - -c
+      - primary_conninfo=
+      - -c
+      - primary_slot_name=
+      - -c
+      - listen_addresses=
+    environment: {PGDR_REPOSITORY: patroni}
+    volumes:
+      - pgrestore:/var/lib/postgresql/data
+      - pgrepo:/var/lib/pgbackrest:ro
+      - ./pgbackrest/patroni.conf:/etc/pgbackrest/pgbackrest.conf:ro
+      - ./scripts/restore-volume.sh:/opt/restore-volume.sh:ro
+    healthcheck:
+      test: [CMD-SHELL, 'test "$$(psql -X -U postgres -d orders -Atc ''SELECT NOT pg_is_in_recovery()'')" = t']
+      interval: 2s
+      timeout: 3s
+      retries: 60
+      start_period: 5s
+    stop_grace_period: 30s
+    shm_size: 128mb
+    mem_limit: 512m
+    cpus: 1.0
+    network_mode: none
   haproxy:
     image: haproxy:3.2.26-alpine@sha256:5893840576071e6217cd52ebdcc14f454c6f7a631056fa6f4e0f40d3cac4215b
     user: '${PGDR_PATRONI_UID:-0}:${PGDR_PATRONI_GID:-0}'
@@ -117,6 +174,8 @@ services:
     volumes: [etcd3_data:/etcd-data]
   pg1:
     <<: *postgres
+    build:
+      context: ./docker/patroni
     environment: {PGDR_PATRONI_NODE: pg1, PGDATA: /var/lib/postgresql/data/pgdata}
     secrets:
       - postgres_password
@@ -129,6 +188,8 @@ services:
       - {source: client_key, target: etcd-client.key}
     volumes:
       - pg1_data:/var/lib/postgresql/data
+      - pgrepo:/var/lib/pgbackrest
+      - ./pgbackrest/patroni.conf:/etc/pgbackrest/pgbackrest.conf:ro
       - ./scripts/patroni.sh:/opt/patroni.sh:ro
       - ./scripts/patroni_config.py:/opt/patroni_config.py:ro
       - ./sql/001-orders.sql:/opt/orders.sql:ro
@@ -146,6 +207,8 @@ services:
       - {source: client_key, target: etcd-client.key}
     volumes:
       - pg2_data:/var/lib/postgresql/data
+      - pgrepo:/var/lib/pgbackrest
+      - ./pgbackrest/patroni.conf:/etc/pgbackrest/pgbackrest.conf:ro
       - ./scripts/patroni.sh:/opt/patroni.sh:ro
       - ./scripts/patroni_config.py:/opt/patroni_config.py:ro
       - ./sql/001-orders.sql:/opt/orders.sql:ro
@@ -171,6 +234,8 @@ secrets:
 volumes:
   pg1_data:
   pg2_data:
+  pgrepo:
+  pgrestore:
   etcd1_data:
   etcd2_data:
   etcd3_data:
