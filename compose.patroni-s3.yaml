@@ -1,0 +1,50 @@
+# An independent Patroni project; no local backup volume is mounted.
+services:
+  pg1:
+    entrypoint: [bash, /opt/s3-entrypoint.sh, bash, /opt/patroni.sh, start-node]
+    volumes: !override
+      - pg1_data:/var/lib/postgresql/data
+      - ./scripts/s3-entrypoint.sh:/opt/s3-entrypoint.sh:ro
+      - ./scripts/patroni.sh:/opt/patroni.sh:ro
+      - ./scripts/patroni_config.py:/opt/patroni_config.py:ro
+      - ./sql/001-orders.sql:/opt/orders.sql:ro
+    secrets: [pgbackrest_s3]
+    networks: [patroni, repository]
+  pg2:
+    entrypoint: [bash, /opt/s3-entrypoint.sh, bash, /opt/patroni.sh, start-node]
+    volumes: !override
+      - pg2_data:/var/lib/postgresql/data
+      - ./scripts/s3-entrypoint.sh:/opt/s3-entrypoint.sh:ro
+      - ./scripts/patroni.sh:/opt/patroni.sh:ro
+      - ./scripts/patroni_config.py:/opt/patroni_config.py:ro
+      - ./sql/001-orders.sql:/opt/orders.sql:ro
+    secrets: [pgbackrest_s3]
+    networks: [patroni, repository]
+  repository:
+    user: root
+    entrypoint: [bash, /opt/s3-entrypoint.sh, gosu, postgres, pgbackrest, --stanza=orders]
+    volumes: !override
+      - ./scripts/s3-entrypoint.sh:/opt/s3-entrypoint.sh:ro
+    secrets: [{source: pgbackrest_s3_read, target: pgbackrest_s3}]
+    network_mode: !reset null
+    networks: [repository]
+  restore:
+    user: root
+    entrypoint: [bash, /opt/s3-entrypoint.sh, gosu, postgres, postgres]
+    volumes: !override
+      - pgrestore:/var/lib/postgresql/data
+      - ./scripts/restore-volume.sh:/opt/restore-volume.sh:ro
+      - ./scripts/s3-entrypoint.sh:/opt/s3-entrypoint.sh:ro
+    secrets: [{source: pgbackrest_s3_read, target: pgbackrest_s3}]
+    network_mode: !reset null
+    networks: [repository]
+
+secrets:
+  pgbackrest_s3:
+    file: ${PGDR_S3_DIR}/pgbackrest.conf
+  pgbackrest_s3_read:
+    file: ${PGDR_PATRONI_S3_RESTORE_DIR}/pgbackrest.conf
+
+networks:
+  repository:
+    # Outbound HTTPS to S3 and, in instance mode, EC2 IMDS. No published SQL port.

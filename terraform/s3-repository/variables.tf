@@ -48,3 +48,26 @@ variable "ec2_role_name_prefix" {
     error_message = "Use a valid IAM name prefix of at most 50 characters."
   }
 }
+
+variable "patroni_repository_prefix" {
+  description = "Optional independent Patroni prefix; null leaves existing repository identities unchanged."
+  type        = string
+  default     = null
+  validation {
+    condition = var.patroni_repository_prefix == null ? true : (
+      can(regex("^postgres-dr/patroni(/[a-z0-9]([a-z0-9/-]*[a-z0-9])?)?$", var.patroni_repository_prefix)) &&
+      !strcontains(var.patroni_repository_prefix, "//")
+    )
+    error_message = "Use postgres-dr/patroni or a child prefix without trailing or repeated slashes."
+  }
+}
+
+variable "patroni_role_name_prefix" {
+  description = "Names the optional Patroni writer/reader roles and instance profiles."
+  type        = string
+  default     = "postgres-dr-patroni-s3"
+  validation {
+    condition     = can(regex("^[A-Za-z0-9+=,.@_-]{1,50}$", var.patroni_role_name_prefix))
+    error_message = "Use a valid IAM name prefix of at most 50 characters."
+  }
+}

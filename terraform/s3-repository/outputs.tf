@@ -27,3 +27,14 @@ output "ec2_instance_profiles" {
     }
   }
 }
+
+output "patroni_s3_identities" {
+  description = "Optional Patroni roles for profile authentication or attached EC2 instance profiles."
+  value = {
+    for name, role in aws_iam_role.patroni : name => {
+      role_arn         = role.arn
+      instance_profile = aws_iam_instance_profile.patroni[name].name
+      prefix           = var.patroni_repository_prefix
+    }
+  }
+}

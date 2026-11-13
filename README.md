@@ -28,7 +28,8 @@ Capability milestones include local Docker runtimes and verified AWS recovery:
 | [v0.12.0](https://github.com/VlrRbn/postgres-disaster-recovery/releases/tag/v0.12.0) | Standby Recovery After WAL Loss | Released |
 | [v0.13.0](https://github.com/VlrRbn/postgres-disaster-recovery/releases/tag/v0.13.0) | Patroni Automatic Failover | Released |
 | [v0.14.0](https://github.com/VlrRbn/postgres-disaster-recovery/releases/tag/v0.14.0) | Stable Primary Endpoint | Released |
-| `v0.15.0` | Patroni Backup And Point-In-Time Recovery | Local acceptance passed |
+| [v0.15.0](https://github.com/VlrRbn/postgres-disaster-recovery/releases/tag/v0.15.0) | Patroni Backup And Point-In-Time Recovery | Released |
+| `v0.16.0` | Patroni S3 Backup And Recovery | Local and AWS recovery passed |
 
 ```text
 empty database volume
@@ -271,13 +272,23 @@ across a failover into a separate isolated volume. See
 [Patroni backup and recovery](docs/patroni-recovery.md), including the DCS update
 required for existing clusters.
 
+For storage outside the Docker host, select `PGDR_PATRONI_REPOSITORY=s3` and
+run `make patroni-s3-setup` before the same Patroni lifecycle and backup commands.
+The S3 backend uses its own project, private configuration, and object prefix;
+it does not migrate an existing local cluster. See
+[Patroni S3 backup and recovery](docs/patroni-s3-recovery.md) for IAM setup,
+reader authentication, recovery, and shutdown.
+Live AWS verification recovered a timeline-1 backup to timeline 2 using a
+separate reader role while the source cluster was stopped; see
+[AWS recovery evidence](evidence/patroni-s3-aws-acceptance-20261113.md).
+
 ## Security Defaults
 
 - official PostgreSQL base image pinned to an immutable digest;
 - pgBackRest package installed at an exact reviewed version;
 - generated local password stored outside Git with file mode `0600`;
 - password mounted through a Compose file secret;
-- database containers on internal networks; the Patroni SQL proxy publishes only on loopback;
+- no direct database host ports; the Patroni SQL proxy publishes only on loopback;
 - CPU, memory, and shared-memory limits;
 - isolated database resources for automated acceptance.
 
@@ -361,11 +372,13 @@ Resume the required runtime with `make up`, `make s3-up`, or
 | `make patroni-down` | Remove Patroni containers/network | Both databases, three etcd stores, credentials and certificates retained |
 | `make patroni-acceptance` | Verify automatic failover, measured loss, rejoin and quorum behavior | JSON/journal retained; disposable cluster and secrets removed |
 | `make patroni-backup-configure` | Enable archive settings in existing Patroni DCS | Restart required; existing data and unrelated settings retained |
-| `make patroni-backup-init` / `make patroni-backup` | Check WAL delivery or create a verified full backup on the current primary | Separate local repository retained |
-| `make patroni-backup-info` / `make patroni-backup-verify` | Inspect or verify backups with no live database required | Repository mounted read-only |
+| `make patroni-backup-init` / `make patroni-backup` | Check WAL delivery or create a verified full backup on the current primary | Selected local or S3 repository retained |
+| `make patroni-backup-info` / `make patroni-backup-verify` | Inspect or verify backups with no live database required | Local mount is read-only; S3 can use a separate reader identity |
 | `make patroni-restore-time` / `make patroni-restore-psql` | Recover explicit backup/time/timeline and inspect isolated data | Live node volumes are not mounted; archive mode disabled |
 | `make patroni-restore-down` / `make patroni-restore-up` | Remove or resume the restored database container | Restored volume retained |
 | `make patroni-backup-acceptance` | Verify backups and PITR across promotion timelines | Disposable resources removed; JSON evidence retained |
+| `make patroni-s3-setup` | Prepare separate private S3 configuration with the backend exported | Existing Patroni commands select the independent S3 project |
+| `make patroni-s3-acceptance` | Verify S3 recovery after removing source data and DCS volumes | Local TLS API fixture; no AWS resources or real credentials |
 | `make image` | Build the PostgreSQL image with pgBackRest | Local image and build cache; no database is started |
 | `make up` | Generate or reuse the password, build and start PostgreSQL, initialize the repository, and check WAL archiving | Database running with initialized backup storage; no backup yet on first startup |
 | `make psql` | Open a SQL session in the running database | Database stays running when the session closes |
@@ -610,7 +623,8 @@ Its own containers, network, three volumes, and temporary secrets are removed.
 | Standby recovery after WAL loss | Released in `v0.12.0` |
 | Patroni automatic failover | Released in `v0.13.0` |
 | Stable primary endpoint through HAProxy | Released in `v0.14.0` |
-| Patroni backup and PITR across failover timelines | Local acceptance passed for `v0.15.0` |
+| Patroni backup and PITR across failover timelines | Released in `v0.15.0` |
+| Patroni S3 backup and recovery without source data mounts | Local API and live AWS recovery passed for `v0.16.0` |
 
 See the [delivery roadmap](docs/roadmap.md) for milestone scope,
 [contribution guidelines](CONTRIBUTING.md) for the PR workflow, and

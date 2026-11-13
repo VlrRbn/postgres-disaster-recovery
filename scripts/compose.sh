@@ -40,18 +40,48 @@ if [[ ${1:-} == --stop-all ]]; then
 fi
 if [[ ${1:-} == --patroni ]]; then
     shift
-    project=${PGDR_PATRONI_PROJECT:-postgres-dr-patroni}
+    backend=${PGDR_PATRONI_REPOSITORY:-local}
+    case "$backend" in
+        local)
+            default_project=postgres-dr-patroni
+            default_directory="$root/.local/patroni"
+            default_port=6432
+            ;;
+        s3)
+            default_project=postgres-dr-patroni-s3
+            default_directory="$root/.local/patroni-s3"
+            default_port=6433
+            ;;
+        *) echo 'PGDR_PATRONI_REPOSITORY must be local or s3.' >&2; exit 2 ;;
+    esac
+    project=${PGDR_PATRONI_PROJECT:-$default_project}
     if [[ ! "$project" =~ ^postgres-dr-patroni($|-[a-z0-9-]+$) ]]; then
         echo 'Patroni requires a postgres-dr-patroni or postgres-dr-patroni-* project.' >&2
         exit 2
     fi
-    export PGDR_PATRONI_DIR=${PGDR_PATRONI_DIR:-$root/.local/patroni}
+    if [[ "$backend" == s3 && ! "$project" =~ ^postgres-dr-patroni-s3($|-[a-z0-9-]+$) ]] ||
+        [[ "$backend" == local && "$project" =~ ^postgres-dr-patroni-s3($|-) ]]; then
+        echo 'Patroni S3 requires its own postgres-dr-patroni-s3[-*] project; do not reuse local cluster volumes.' >&2
+        exit 2
+    fi
+    export PGDR_PATRONI_DIR=${PGDR_PATRONI_DIR:-$default_directory}
+    export PGDR_PATRONI_PORT=${PGDR_PATRONI_PORT:-$default_port}
     export PGDR_PATRONI_IMAGE="$project-postgres:local"
     export PGDR_PATRONI_UID PGDR_PATRONI_GID
     PGDR_PATRONI_UID=$(id -u)
     PGDR_PATRONI_GID=$(id -g)
-    exec docker compose --project-name "$project" --project-directory "$root" \
-        --file "$root/compose.patroni.yaml" "$@"
+    configs=(--file "$root/compose.patroni.yaml")
+    if [[ "$backend" == s3 ]]; then
+        export PGDR_S3_DIR=${PGDR_S3_DIR:-$PGDR_PATRONI_DIR/s3}
+        export PGDR_PATRONI_S3_RESTORE_DIR=${PGDR_PATRONI_S3_RESTORE_DIR:-$PGDR_S3_DIR}
+        configs+=(--file "$root/compose.patroni-s3.yaml")
+        if [[ ${PGDR_S3_FIXTURE:-0} == 1 ]]; then
+            configs+=(--file "$root/compose.patroni-s3-test.yaml")
+        fi
+    elif [[ ${PGDR_S3_FIXTURE:-0} != 0 ]]; then
+        echo 'The Patroni S3 fixture requires PGDR_PATRONI_REPOSITORY=s3.' >&2; exit 2
+    fi
+    exec docker compose --project-name "$project" --project-directory "$root" "${configs[@]}" "$@"
 fi
 if [[ ${1:-} == --replication ]]; then
     shift

@@ -1,7 +1,9 @@
 """Verify automatic failover and quorum behavior in a disposable Patroni cluster."""
 
+import configparser
 from datetime import datetime, timedelta, timezone
 import hashlib
+import io
 import json
 import os
 from pathlib import Path
@@ -21,11 +23,17 @@ NODES = ('pg1', 'pg2')
 
 
 class Cluster:
-    def __init__(self, directory: str):
-        self.project = f'postgres-dr-patroni-test-{int(time.time())}-{os.getpid()}'
+    def __init__(self, directory: str, backend: str = 'local'):
+        self.backend = backend
+        prefix = 'postgres-dr-patroni-s3-test' if backend == 's3' else 'postgres-dr-patroni-test'
+        self.project = f'{prefix}-{int(time.time())}-{os.getpid()}'
         self.directory = Path(directory)
         self.env = dict(os.environ, PGDR_PATRONI_PROJECT=self.project,
-                        PGDR_PATRONI_DIR=directory, PGDR_PATRONI_PORT='0')
+                        PGDR_PATRONI_DIR=directory, PGDR_PATRONI_PORT='0',
+                        PGDR_PATRONI_REPOSITORY=backend,
+                        PGDR_S3_FIXTURE='1' if backend == 's3' else '0',
+                        PGDR_S3_DIR=str(self.directory / 's3'),
+                        PGDR_PATRONI_S3_RESTORE_DIR=str(self.directory / 'reader'))
         self.command = ['bash', str(ROOT / 'scripts/compose.sh'), '--patroni']
 
     def compose(self, *args: str, check: bool = True, timeout: int = 240):
@@ -99,9 +107,90 @@ with urlopen(request, context=ssl.create_default_context(cafile=TLS+'/ca.crt'), 
         return json.loads(result.stdout)
 
     def repository_digest(self) -> str:
+        if self.backend == 's3':
+            code = '''
+import boto3, json
+client=boto3.client('s3', endpoint_url='http://localhost:5000', region_name='eu-west-1',
+    aws_access_key_id='testing', aws_secret_access_key='testing')
+pages=list(client.get_paginator('list_object_versions').paginate(
+    Bucket='postgres-dr-fixture', Prefix='postgres-dr/patroni/'))
+records=[(kind, item) for page in pages for kind in ('Versions','DeleteMarkers') for item in page.get(kind,[])]
+print(json.dumps(sorted(records, key=lambda row:(row[1]['Key'],row[1]['VersionId'])), sort_keys=True, default=str))'''
+            result = self.compose('exec', '-T', 'moto', 'python', '-c', code)
+            return hashlib.sha256(result.stdout.encode()).hexdigest()
         result = self.compose('run', '--rm', '--no-deps', '-T', '--entrypoint', 'bash',
                               'repository', '-c', 'find /var/lib/pgbackrest -type f -exec sha256sum {} + | sort')
         return hashlib.sha256(result.stdout.encode()).hexdigest()
+
+    def remove_source(self):
+        if self.backend == 'local':
+            self.compose('down')
+        else:
+            # The API fixture is independent of PostgreSQL and survives source removal.
+            services = (*NODES, 'haproxy', 'etcd1', 'etcd2', 'etcd3')
+            self.compose('stop', *services)
+            self.compose('rm', '--force', *services)
+
+    def prepare_s3(self):
+        # Build production configuration with synthetic credentials; never load AWS profiles.
+        sys.path.insert(0, str(ROOT))
+        from scripts.setup_s3 import build_config, write_private
+
+        directory = self.directory / 's3'
+        directory.mkdir(mode=0o700)
+        subprocess.run(['openssl', 'req', '-x509', '-newkey', 'rsa:2048', '-nodes', '-days', '1',
+                        '-subj', '/CN=s3', '-addext', 'subjectAltName=DNS:s3',
+                        '-keyout', str(directory / 'server.key'), '-out', str(directory / 'server.crt')],
+                       check=True, capture_output=True, timeout=20)
+        (directory / 'server.key').chmod(0o600)
+        settings = {'runtime': 'patroni', 'bucket': 'postgres-dr-fixture', 'region': 'eu-west-1',
+                    'prefix': 'postgres-dr/patroni', 'profile': 'synthetic-test'}
+        config = configparser.ConfigParser(interpolation=None)
+        config.read_string(build_config(settings, {'AccessKeyId': 'testing', 'SecretAccessKey': 'testing'}))
+        config['global'].update({'repo1-s3-endpoint': 's3', 'repo1-storage-port': '5000',
+                                 'repo1-storage-ca-file': '/opt/s3-ca.crt'})
+        for name, port in (('s3', '5000'), ('reader', '5001')):
+            config['global']['repo1-storage-port'] = port
+            output = io.StringIO()
+            config.write(output, space_around_delimiters=False)
+            write_private(self.directory / name / 'pgbackrest.conf', output.getvalue())
+        self.compose('up', '--detach', '--wait', '--wait-timeout', '120', 's3')
+        code = '''
+import boto3
+c=boto3.client('s3', endpoint_url='http://localhost:5000', region_name='eu-west-1',
+    aws_access_key_id='testing', aws_secret_access_key='testing')
+c.create_bucket(Bucket='postgres-dr-fixture', CreateBucketConfiguration={'LocationConstraint':'eu-west-1'})
+c.put_bucket_versioning(Bucket='postgres-dr-fixture', VersioningConfiguration={'Status':'Enabled'})'''
+        self.compose('exec', '-T', 'moto', 'python', '-c', code)
+
+    def verify_s3_access(self):
+        for node in NODES:
+            self.compose('exec', '-T', node, 'test', '!', '-e', '/var/lib/pgbackrest/backup/orders')
+            mounts = self.inspect(node)['Mounts']
+            assert not any(m.get('Name') == f'{self.project}_pgrepo' for m in mounts)
+        # Verify the fixture really rejects mutation on the endpoint used by recovery.
+        code = '''
+import boto3
+from botocore.exceptions import ClientError
+c=boto3.client('s3', endpoint_url='https://s3:5001', region_name='eu-west-1',
+    aws_access_key_id='testing', aws_secret_access_key='testing', verify='/opt/fixture-ca.crt')
+assert c.list_objects_v2(Bucket='postgres-dr-fixture',Prefix='postgres-dr/patroni/')['KeyCount'] > 0
+for action in ('put_object','delete_object'):
+    try:
+        args=dict(Bucket='postgres-dr-fixture',Key='postgres-dr/patroni/forbidden')
+        if action == 'put_object': args['Body']=b'forbidden'
+        getattr(c, action)(**args)
+    except ClientError as error:
+        assert error.response['ResponseMetadata']['HTTPStatusCode'] == 403
+    else: raise AssertionError('Read-only endpoint accepted a mutation')'''
+        self.compose('exec', '-T', 'moto', 'python', '-c', code)
+        untrusted_ca = self.directory / 'untrusted-ca.crt'
+        untrusted_ca.write_bytes((self.directory / 'tls/ca.crt').read_bytes())
+        untrusted_ca.chmod(0o644)
+        untrusted = self.compose('run', '--rm', '--no-deps', '-T', '--volume',
+                                f'{untrusted_ca}:/opt/untrusted-ca.crt:ro', 'repository',
+                                '--repo1-storage-ca-file=/opt/untrusted-ca.crt', 'repo-ls', check=False)
+        assert untrusted.returncode != 0 and 'certificate' in (untrusted.stdout + untrusted.stderr).lower(), untrusted.stdout + untrusted.stderr
 
     def inspect(self, node: str) -> dict:
         return json.loads(subprocess.check_output(['docker', 'inspect', self.container(node)], text=True))[0]
@@ -436,7 +525,7 @@ def exercise_backup(cluster: Cluster) -> dict:
     # Recreate the archive-disabled DCS settings of v0.14.0 on this disposable cluster.
     cluster.dynamic_config(source, {'postgresql': {'parameters': {
         'archive_mode': 'off', 'archive_command': '', 'archive_timeout': '0'}}})
-    cluster.compose('down')
+    cluster.remove_source()
     cluster.operation('patroni.sh', 'up')
     wait_for('archive-disabled retained cluster is ready', cluster.healthy)
     source = cluster.leader()
@@ -446,7 +535,7 @@ def exercise_backup(cluster: Cluster) -> dict:
     after = cluster.dynamic_config(source)['postgresql']['parameters']
     changed = {'archive_mode', 'archive_command', 'archive_timeout'}
     assert {k: v for k, v in before.items() if k not in changed} == {k: v for k, v in after.items() if k not in changed}
-    cluster.compose('down')
+    cluster.remove_source()
     cluster.operation('patroni.sh', 'up')
     wait_for('retained cluster starts with archiving enabled', cluster.healthy)
     source = cluster.leader()
@@ -467,6 +556,8 @@ def exercise_backup(cluster: Cluster) -> dict:
     backup = info['backup'][0]
     label = backup['label']
     backup_timeline = int(backup['archive']['start'][:8], 16)
+    if cluster.backend == 's3':
+        cluster.verify_s3_access()
     print(f'PASS: full backup {label} on timeline {backup_timeline}', flush=True)
 
     print('[3/8] Promote the replica and archive new-timeline writes', flush=True)
@@ -499,8 +590,16 @@ def exercise_backup(cluster: Cluster) -> dict:
     cluster.operation('backup.sh', 'check')
 
     print('[5/8] Stop the source cluster and inspect backups without a database', flush=True)
-    cluster.compose('down')
+    cluster.remove_source()
     assert all(not cluster.container(node) for node in NODES)
+    if cluster.backend == 's3':
+        for volume in ('pg1_data', 'pg2_data', 'etcd1_data', 'etcd2_data', 'etcd3_data'):
+            subprocess.run(['docker', 'volume', 'rm', f'{cluster.project}_{volume}'],
+                           check=True, capture_output=True, timeout=20)
+        # Recovery must not depend on source TLS identities or database passwords.
+        shutil.rmtree(cluster.directory / 'tls')
+        for name in ('postgres', 'replication', 'patroni_api'):
+            (cluster.directory / f'{name}_password').unlink()
     offline = cluster.operation('backup.sh', 'info')
     assert label in offline.stdout and promoted_backup['label'] in offline.stdout
     cluster.operation('backup.sh', 'verify')
@@ -531,12 +630,19 @@ def exercise_backup(cluster: Cluster) -> dict:
     assert cluster.sql('restore', 'SELECT pg_is_in_recovery()') == 'f'
     assert cluster.sql('restore', 'SHOW archive_mode') == 'off'
     data = cluster.inspect('restore')
-    assert data['HostConfig']['NetworkMode'] == 'none' and not data['HostConfig']['PortBindings']
+    assert not data['HostConfig']['PortBindings']
     mounts = {m['Destination']: m for m in data['Mounts']}
-    assert not mounts['/var/lib/pgbackrest']['RW']
+    if cluster.backend == 's3':
+        assert set(data['NetworkSettings']['Networks']) == {f'{cluster.project}_repository'}
+        assert '/var/lib/pgbackrest' not in mounts
+        assert not mounts['/run/secrets/pgbackrest_s3']['RW']
+        assert all(m['Destination'] != '/run/secrets/ca.crt' for m in data['Mounts'])
+    else:
+        assert data['HostConfig']['NetworkMode'] == 'none'
+        assert not mounts['/var/lib/pgbackrest']['RW']
+        assert not any(m['Destination'].startswith('/run/secrets') for m in data['Mounts'])
     assert mounts['/var/lib/postgresql/data']['Name'] == f'{cluster.project}_pgrestore'
     assert all(m.get('Name') not in (f'{cluster.project}_pg1_data', f'{cluster.project}_pg2_data') for m in data['Mounts'])
-    assert not any(m['Destination'].startswith('/run/secrets') for m in data['Mounts'])
     assert cluster.repository_digest() == digest
     cluster.sql('restore', "INSERT INTO orders (reference,amount_cents) VALUES ('patroni-dr-restored-write',5500)")
     print('PASS: three exact orders recovered, including the deleted order and post-failover write; late order excluded', flush=True)
@@ -548,25 +654,33 @@ def exercise_backup(cluster: Cluster) -> dict:
     assert cluster.sql('restore', 'SHOW archive_mode') == 'off'
     assert cluster.repository_digest() == digest
     return {'schema_version': 1, 'status': 'verified', 'project': cluster.project,
-            'scenario': 'patroni_cross_timeline_pitr', 'backup_label': label,
+            'scenario': 'patroni_s3_cross_timeline_pitr' if cluster.backend == 's3' else 'patroni_cross_timeline_pitr',
+            'repository_backend': cluster.backend, 'backup_label': label,
             'post_failover_backup_label': promoted_backup['label'],
             'post_failover_backup_timeline': timeline,
             'backup_timeline': backup_timeline, 'recovery_timeline': timeline,
             'recovery_time_utc': target, 'recovered_orders': 3, 'final_order_count': 4,
             'source_system_identifier': system_id, 'repository_sha256': digest,
+            'repository_digest_scope': 's3_object_versions_and_delete_markers' if cluster.backend == 's3' else 'local_file_checksums',
             'archive_dcs_upgrade': 'verified', 'unreachable_target_rejected': True,
-            'source_services_removed_during_restore': True}
+            'source_services_removed_during_restore': True,
+            'source_data_volumes_removed': cluster.backend == 's3',
+            's3_read_only_endpoint': cluster.backend == 's3',
+            'aws_live_validation': False}
 
 
 def main():
-    if sys.argv[1:] not in ([], ['--backup']):
-        raise SystemExit('Usage: patroni_acceptance.py [--backup]')
-    backup_mode = sys.argv[1:] == ['--backup']
+    if sys.argv[1:] not in ([], ['--backup'], ['--s3']):
+        raise SystemExit('Usage: patroni_acceptance.py [--backup|--s3]')
+    s3_mode = sys.argv[1:] == ['--s3']
+    backup_mode = sys.argv[1:] in (['--backup'], ['--s3'])
     directory = tempfile.mkdtemp(prefix='pgdr-patroni-')
-    cluster = Cluster(directory)
+    cluster = Cluster(directory, 's3' if s3_mode else 'local')
     try:
+        if s3_mode:
+            cluster.prepare_s3()
         report = exercise_backup(cluster) if backup_mode else exercise(cluster)
-        suffix = 'patroni-backup' if backup_mode else 'patroni'
+        suffix = 'patroni-s3' if s3_mode else 'patroni-backup' if backup_mode else 'patroni'
         output = ROOT / '.local/reports' / f'{cluster.project}-{suffix}.json'
         output.parent.mkdir(parents=True, exist_ok=True)
         output.write_text(json.dumps(report, indent=2) + '\n')

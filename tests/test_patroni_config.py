@@ -114,6 +114,19 @@ class PatroniConfigurationTests(unittest.TestCase):
 
 
 class PatroniRestoreValidationTests(unittest.TestCase):
+    def test_s3_and_local_projects_cannot_reuse_each_others_volumes(self):
+        for backend, project in (('s3', 'postgres-dr-patroni'),
+                                 ('s3', 'postgres-dr-patroni-test'),
+                                 ('local', 'postgres-dr-patroni-s3'),
+                                 ('local', 'postgres-dr-patroni-s3-custom'),
+                                 ('invalid', 'postgres-dr-patroni')):
+            with self.subTest(backend=backend, project=project):
+                env = dict(os.environ, PGDR_PATRONI_REPOSITORY=backend, PGDR_PATRONI_PROJECT=project)
+                result = subprocess.run(['bash', str(ROOT / 'scripts/compose.sh'), '--patroni', 'config'],
+                                        env=env, capture_output=True, text=True, timeout=10)
+                self.assertEqual(result.returncode, 2)
+                self.assertIn('PGDR_PATRONI_REPOSITORY' if backend == 'invalid' else 'do not reuse', result.stderr)
+
     def restore(self, timeline, recovery_time='2026-11-03 12:00:00+00:00'):
         env = dict(os.environ, PGDR_REPOSITORY='patroni', BACKUP_LABEL='20261103-110000F',
                    RECOVERY_TIME=recovery_time)

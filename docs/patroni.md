@@ -46,6 +46,8 @@ its own data, configuration, and certificates. The existing manual replication
 and local/S3 backup commands target separate PostgreSQL clusters. Use the
 `patroni-backup-*` and `patroni-restore-*` commands for this runtime; see
 [Patroni backup and recovery](patroni-recovery.md).
+An optional [S3 backend](patroni-s3-recovery.md) uses the same commands with a
+separate project and repository prefix; the local backend remains the default.
 
 `patroni-status` should show one `Leader` and one `Replica` in state `streaming`.
 Either `pg1` or `pg2` can become leader. The three etcd members need a majority

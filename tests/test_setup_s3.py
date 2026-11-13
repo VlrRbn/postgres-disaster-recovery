@@ -34,6 +34,55 @@ class S3SetupTests(unittest.TestCase):
         self.assertEqual(config['global']['repo1-bundle'], 'y')
         self.assertEqual(config['orders']['pg1-path'], '/var/lib/postgresql/data')
 
+    def test_patroni_config_uses_nested_pgdata_and_independent_prefix(self):
+        settings = {**self.settings, 'runtime': 'patroni', 'prefix': 'postgres-dr/patroni'}
+        config = configparser.ConfigParser(interpolation=None)
+        config.read_string(build_config(settings, self.credentials, now=self.now))
+        self.assertEqual(config['orders']['pg1-path'], '/var/lib/postgresql/data/pgdata')
+        self.assertEqual(config['global']['repo1-path'], '/postgres-dr/patroni')
+        self.assertEqual(config['global']['archive-timeout'], '90')
+        self.assertEqual(config['global']['repo1-storage-verify-tls'], 'y')
+        self.assertEqual(writer_policy(settings)['Statement'][1]['Resource'],
+                         'arn:aws:s3:::postgres-dr-example/postgres-dr/patroni/*')
+
+    def test_runtime_prefixes_cannot_overlap(self):
+        for runtime, prefix in (('patroni', 'postgres-dr/orders'),
+                                ('standalone', 'postgres-dr/patroni'),
+                                ('standalone', 'postgres-dr/patroni/test'),
+                                ('unexpected', 'postgres-dr/orders')):
+            with self.subTest(runtime=runtime, prefix=prefix), self.assertRaises(ValueError):
+                validate_settings({**self.settings, 'runtime': runtime, 'prefix': prefix})
+
+    def test_patroni_cli_defaults_to_its_own_directory_and_prefix(self):
+        with tempfile.TemporaryDirectory() as directory:
+            environment = {'PGDR_S3_RUNTIME': 'patroni', 'PGDR_PATRONI_DIR': directory,
+                           'PGDR_S3_BUCKET': self.settings['bucket'], 'PGDR_S3_REGION': 'eu-west-1',
+                           'PGDR_S3_AUTH_MODE': 'instance'}
+            with patch.dict(os.environ, environment, clear=True), \
+                    patch('sys.argv', ['setup_s3.py']), patch('sys.stdout', io.StringIO()), \
+                    patch('scripts.setup_s3.fetch_credentials') as fetch:
+                main()
+            fetch.assert_not_called()
+            saved = json.loads(Path(directory, 's3/settings.json').read_text())
+            self.assertEqual(saved['runtime'], 'patroni')
+            self.assertEqual(saved['prefix'], 'postgres-dr/patroni')
+            self.assertEqual(Path(directory, 's3/pgbackrest.conf').stat().st_mode & 0o777, 0o600)
+
+    def test_runtime_switch_refuses_to_overwrite_existing_configuration(self):
+        with tempfile.TemporaryDirectory() as directory:
+            Path(directory, 'settings.json').write_text(json.dumps(self.settings))
+            target = Path(directory, 'pgbackrest.conf')
+            target.write_text('preserve existing repository')
+            with patch.dict(os.environ, {'PGDR_S3_RUNTIME': 'patroni', 'PGDR_S3_DIR': directory,
+                                         'PGDR_S3_PREFIX': 'postgres-dr/patroni'}, clear=True), \
+                    patch('sys.argv', ['setup_s3.py']), \
+                    patch('scripts.setup_s3.fetch_credentials') as fetch, \
+                    patch('sys.stderr', io.StringIO()) as errors, self.assertRaises(SystemExit):
+                main()
+            fetch.assert_not_called()
+            self.assertIn('another runtime', errors.getvalue())
+            self.assertEqual(target.read_text(), 'preserve existing repository')
+
     def test_instance_config_has_no_credentials_or_bootstrap_profile_requirement(self):
         settings = {**self.settings, 'auth_mode': 'instance', 'profile': None, 'role_arn': None}
         config = configparser.ConfigParser(interpolation=None)
