@@ -17,7 +17,7 @@ jobs:
   foundation:
     name: Foundation checks
     runs-on: ubuntu-24.04
-    timeout-minutes: 20
+    timeout-minutes: 25
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -52,6 +52,10 @@ jobs:
         run: make patroni-backup-acceptance
       - name: Show Patroni backup recovery
         run: cat .local/reports/*-patroni-backup.json
+      - name: Verify Patroni S3 backups and recovery without source volumes
+        run: make patroni-s3-acceptance
+      - name: Show Patroni S3 recovery
+        run: cat .local/reports/*-patroni-s3.json
 
   repository-infrastructure:
     name: S3 infrastructure validation

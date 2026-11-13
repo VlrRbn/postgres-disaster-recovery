@@ -14,6 +14,9 @@ from pathlib import Path
 
 
 def validate_settings(settings):
+    runtime = settings.get('runtime', 'standalone')
+    if runtime not in ('standalone', 'patroni'):
+        raise ValueError('S3 runtime must be standalone or patroni')
     auth_mode = settings.get('auth_mode', 'profile')
     if auth_mode not in ('profile', 'instance'):
         raise ValueError('S3 auth mode must be profile or instance')
@@ -30,6 +33,9 @@ def validate_settings(settings):
         raise ValueError('Prefix must start with postgres-dr/ and use lowercase letters, digits, slashes or hyphens')
     if settings['prefix'].endswith('/') or '//' in settings['prefix']:
         raise ValueError('Prefix must not end with / or contain //')
+    patroni_prefix = settings['prefix'] == 'postgres-dr/patroni' or settings['prefix'].startswith('postgres-dr/patroni/')
+    if (runtime == 'patroni') != patroni_prefix:
+        raise ValueError('Patroni uses the reserved postgres-dr/patroni[/...] prefix; standalone repositories use another prefix')
     if auth_mode == 'profile' and (not settings.get('profile')
                                    or any(char in settings['profile'] for char in '\r\n')):
         raise ValueError('An AWS CLI profile name is required')
@@ -65,7 +71,8 @@ def build_config(settings, credentials=None, *, now=None):
         raise ValueError('Instance mode must not receive explicit AWS credentials')
 
     config = configparser.ConfigParser(interpolation=None)
-    base = Path(__file__).resolve().parent.parent / 'pgbackrest/pgbackrest.conf'
+    filename = 'patroni.conf' if settings.get('runtime') == 'patroni' else 'pgbackrest.conf'
+    base = Path(__file__).resolve().parent.parent / 'pgbackrest' / filename
     config.read_string(base.read_text())
     # Rebuild authentication fields; never carry old keys into an instance config.
     for option in ('repo1-s3-key', 'repo1-s3-key-secret', 'repo1-s3-token'):
@@ -118,6 +125,7 @@ def parse_settings(directory):
     settings_path = directory / 'settings.json'
     saved = json.loads(settings_path.read_text()) if settings_path.exists() else {}
     parser = argparse.ArgumentParser(description=__doc__)
+    runtime = os.environ.get('PGDR_S3_RUNTIME', 'standalone')
     for name in ('bucket', 'region', 'prefix', 'profile', 'role_arn', 'auth_mode'):
         # Keep explicit profile inputs separate from saved values during a mode switch.
         saved_default = argparse.SUPPRESS if name in ('profile', 'role_arn') else saved.get(name)
@@ -125,8 +133,10 @@ def parse_settings(directory):
                             default=os.environ.get(f'PGDR_S3_{name.upper()}', saved_default))
     args = parser.parse_args()
     settings = vars(args)
+    if runtime != 'standalone' or 'runtime' in saved:
+        settings['runtime'] = runtime
     settings['auth_mode'] = settings['auth_mode'] or 'profile'
-    settings['prefix'] = settings['prefix'] or 'postgres-dr/orders'
+    settings['prefix'] = settings['prefix'] or ('postgres-dr/patroni' if runtime == 'patroni' else 'postgres-dr/orders')
     for name in ('profile', 'role_arn'):
         if settings['auth_mode'] == 'instance':
             if name in settings:
@@ -165,10 +175,15 @@ def save_configuration(directory, settings, credentials):
 
 def main():
     root = Path(__file__).resolve().parent.parent
-    directory = Path(os.environ.get('PGDR_S3_DIR', str(root / '.local/s3')))
+    default = root / '.local/s3'
+    if os.environ.get('PGDR_S3_RUNTIME') == 'patroni':
+        default = Path(os.environ.get('PGDR_PATRONI_DIR', str(root / '.local/patroni-s3'))) / 's3'
+    directory = Path(os.environ.get('PGDR_S3_DIR', str(default)))
     parser, settings, saved = parse_settings(directory)
     try:
         validate_settings(settings)
+        if saved and saved.get('runtime', 'standalone') != settings.get('runtime', 'standalone'):
+            raise ValueError('Existing S3 config belongs to another runtime; use a separate PGDR_S3_DIR')
         if saved and any(saved[name] != settings[name] for name in ('bucket', 'region', 'prefix')):
             raise ValueError('Existing repository identity differs; use a separate PGDR_S3_DIR and Compose project')
         credentials = fetch_credentials(settings) if settings['auth_mode'] == 'profile' else None

@@ -235,6 +235,10 @@ case "${1:-}" in
     replication-tls) setup_tls; exit ;;
     patroni)
         directory=${PGDR_PATRONI_DIR:-$root/.local/patroni}
+        if [[ ${PGDR_PATRONI_REPOSITORY:-local} == s3 ]]; then
+            directory=${PGDR_PATRONI_DIR:-$root/.local/patroni-s3}
+        fi
+        export PGDR_PATRONI_DIR="$directory"
         mkdir -p "$directory"
         for name in postgres replication patroni_api; do
             secret_file="$directory/${name}_password"

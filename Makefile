@@ -6,7 +6,7 @@
 .PHONY: replication-reseed
 .PHONY: patroni-setup patroni-up patroni-down patroni-status patroni-primary-psql patroni-standby-psql patroni-endpoint-psql patroni-acceptance
 .PHONY: patroni-backup-configure patroni-backup-init patroni-backup-check patroni-backup patroni-backup-info patroni-backup-verify patroni-backup-acceptance
-.PHONY: patroni-image
+.PHONY: patroni-image patroni-s3-setup patroni-s3-acceptance
 .PHONY: patroni-restore patroni-restore-time patroni-restore-up patroni-restore-psql patroni-restore-down
 .PHONY: setup check image up psql down acceptance backup-init backup-check backup backup-info backup-verify backup-health backup-health-acceptance restore restore-time restore-latest-wal restore-up restore-psql restore-down pgadmin-up pgadmin-down pgadmin-acceptance rpo-acceptance s3-setup s3-up s3-down s3-psql s3-backup s3-backup-info s3-backup-check s3-backup-health s3-acceptance s3-restore s3-restore-time s3-restore-latest-wal s3-restore-up s3-restore-psql s3-restore-down replication-up replication-down replication-primary-psql replication-standby-psql replication-status replication-acceptance replication-switchover replication-rejoin
 .PHONY: schedule-install schedule-enable schedule-disable schedule-remove schedule-status schedule-check schedule-acceptance scheduled-backup scheduled-backup-health
@@ -32,6 +32,8 @@ check: ## Validate scripts, unit tests, Compose files and systemd definitions
 	PGDR_REPOSITORY=s3 PGDR_S3_FIXTURE=1 PGDR_S3_DIR=.local/s3 bash scripts/compose.sh config --quiet
 	bash scripts/compose.sh --replication config --quiet
 	bash scripts/compose.sh --patroni config --quiet
+	PGDR_PATRONI_REPOSITORY=s3 bash scripts/compose.sh --patroni config --quiet
+	PGDR_PATRONI_REPOSITORY=s3 PGDR_S3_FIXTURE=1 bash scripts/compose.sh --patroni config --quiet
 	$(MAKE) --no-print-directory schedule-check
 	git diff --check
 
@@ -131,6 +133,14 @@ patroni-acceptance: ## Verify automatic failover, acknowledged loss, rejoin and 
 	python3 scripts/patroni_acceptance.py
 
 ##@ Patroni backup and restore
+patroni-s3-setup: ## Prepare separate Patroni S3 settings and private cluster identities
+	@test "$${PGDR_PATRONI_REPOSITORY:-local}" = s3 || { echo 'Export PGDR_PATRONI_REPOSITORY=s3 before configuring this runtime.' >&2; exit 2; }
+	PGDR_S3_RUNTIME=patroni python3 scripts/setup_s3.py
+	PGDR_PATRONI_REPOSITORY=s3 bash scripts/setup.sh patroni
+
+patroni-s3-acceptance: ## Verify Patroni S3 backup and cross-timeline PITR using a private local API fixture
+	python3 scripts/patroni_acceptance.py --s3
+
 patroni-image: ## Build the shared Patroni/pgBackRest image without starting databases
 	bash scripts/compose.sh --patroni build pg1
 

@@ -5,6 +5,11 @@ completed WAL segments there, including timeline history after promotion. Full
 backups select the current primary through its verified Patroni API. Recovery
 uses a separate PostgreSQL container with read-only access to the repository.
 
+This page describes the default local backend. For an independent S3-backed
+project using the same commands, see [Patroni S3 recovery](patroni-s3-recovery.md).
+Its recovery container needs outbound S3 access and can use a separate reader
+identity instead of a local read-only repository mount.
+
 ## Start And Prepare Backups
 
 Run from the repository root. The commands use the same `PGDR_PATRONI_PROJECT`
@@ -168,8 +173,9 @@ repository immutability, and retained restored writes after container recreation
 
 The restored database is a standalone recovery result. It does not replace the
 live primary, rejoin Patroni, or restore etcd. The local repository shares the
-Docker host; off-host storage for this runtime, scheduled Patroni backups,
-tablespaces outside the data volume, and application cutover are separate work.
+Docker host. The optional S3 backend stores backups outside that host;
+scheduled Patroni backups, tablespaces outside the data volume, and application
+cutover remain outside this procedure.
 Asynchronous replication can still lose acknowledged transactions during failover.
 
 See [acceptance evidence](../evidence/patroni-recovery-acceptance-20261104.md).

@@ -1,0 +1,19 @@
+# Reuse the standalone S3 fixture; all state and certificates are disposable.
+services:
+  moto:
+    extends: {file: compose.s3-test.yaml, service: moto}
+    volumes: ['${PGDR_S3_DIR}/server.crt:/opt/fixture-ca.crt:ro']
+  s3:
+    extends: {file: compose.s3-test.yaml, service: s3}
+  pg1:
+    volumes: ['${PGDR_S3_DIR}/server.crt:/opt/s3-ca.crt:ro']
+  pg2:
+    volumes: ['${PGDR_S3_DIR}/server.crt:/opt/s3-ca.crt:ro']
+  repository:
+    volumes: ['${PGDR_S3_DIR}/server.crt:/opt/s3-ca.crt:ro']
+  restore:
+    volumes: ['${PGDR_S3_DIR}/server.crt:/opt/s3-ca.crt:ro']
+
+networks:
+  repository:
+    internal: true

@@ -64,7 +64,8 @@ restore_from_backup() {
     else
         "${compose[@]}" build restore
     fi
-    if [[ ${PGDR_REPOSITORY:-local} == s3 ]]; then
+    if [[ ${PGDR_REPOSITORY:-local} == s3 ||
+        ( ${PGDR_REPOSITORY:-local} == patroni && ${PGDR_PATRONI_REPOSITORY:-local} == s3 ) ]]; then
         "${compose[@]}" run --rm --no-deps --entrypoint bash restore \
             /opt/s3-entrypoint.sh gosu postgres bash /opt/restore-volume.sh "${restore_args[@]}"
     else

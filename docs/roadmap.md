@@ -19,7 +19,8 @@ names. Each release marks a completed and verified milestone.
 | Standby Recovery After WAL Loss | `v0.12.0` | Released |
 | Patroni Automatic Failover | `v0.13.0` | Released |
 | Stable Primary Endpoint | `v0.14.0` | Released |
-| Patroni Backup And Point-In-Time Recovery | `v0.15.0` | Local acceptance passed |
+| Patroni Backup And Point-In-Time Recovery | `v0.15.0` | Released |
+| Patroni S3 Backup And Recovery | `v0.16.0` | Local and AWS recovery passed |
 
 ## Physical Backup Delivery Steps
 
@@ -172,6 +173,21 @@ and unsafe retries, compares exact rows, and checks repository immutability.
 Existing DCS archive settings are upgraded without replacing cluster identity
 or unrelated configuration. See [Patroni recovery](patroni-recovery.md).
 
+Released in `v0.15.0` after successful main CI.
+
+## Patroni S3 Recovery Delivery
+
+Extend the existing Patroni backup and recovery commands with an optional S3
+repository. A separate project and object prefix keep local and standalone S3
+data independent. Dedicated writer and reader identities limit access to the
+Patroni prefix. Acceptance uses verified TLS, archives across promotion, removes
+source database and DCS volumes, and recovers through a read-only S3 endpoint.
+See [Patroni S3 recovery](patroni-s3-recovery.md).
+Live AWS validation also recovered a pre-failover backup onto timeline 2 with
+the source stopped and a separate reader role. The recovered data and a new
+write survived container recreation. See
+[AWS recovery evidence](../evidence/patroni-s3-aws-acceptance-20261113.md).
+
 ## Acceptance Contracts
 
 - **Physical Backup And Restore:** create a pgBackRest backup, restore into
@@ -208,4 +224,4 @@ or unrelated configuration. See [Patroni recovery](patroni-recovery.md).
 - Claim backup recovery only after restoration has been exercised.
 
 Local retention rollover, independent external monitoring, application retry
-handling, and off-host storage for Patroni backups are possible later capabilities.
+handling, and scheduled Patroni backups are possible later capabilities.
