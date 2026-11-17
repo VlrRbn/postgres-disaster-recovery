@@ -6,6 +6,10 @@ and UTC target. The host receives no source database volume, local repository,
 or AWS credential files. A completed AWS run is recorded in
 [clean-host recovery evidence](../evidence/ec2-s3-recovery-acceptance-20261013.md).
 
+This page uses the standalone S3 runtime. For a Patroni backup with an explicit
+destination timeline, reuse the same Terraform host with the
+[Patroni EC2 recovery procedure](patroni-ec2-recovery.md) and its reader profile.
+
 ## Prepare The Temporary Host
 
 `terraform/ec2-recovery/` manages one Ubuntu 24.04 `t3.small` with an encrypted

@@ -15,7 +15,7 @@ the reviewed plan changed and destroyed no existing resources.
 
 | Field | Observed Value |
 | --- | --- |
-| Bucket | `vlrrbn-postgres-dr-123456789012-eu-west-1` |
+| Bucket | `example-postgres-dr-bucket` |
 | Region | `eu-west-1` |
 | Repository prefix | `postgres-dr/orders` |
 | Writer role | `postgres-dr-s3-writer` |

@@ -29,7 +29,7 @@ Capability milestones include local Docker runtimes and verified AWS recovery:
 | [v0.13.0](https://github.com/VlrRbn/postgres-disaster-recovery/releases/tag/v0.13.0) | Patroni Automatic Failover | Released |
 | [v0.14.0](https://github.com/VlrRbn/postgres-disaster-recovery/releases/tag/v0.14.0) | Stable Primary Endpoint | Released |
 | [v0.15.0](https://github.com/VlrRbn/postgres-disaster-recovery/releases/tag/v0.15.0) | Patroni Backup And Point-In-Time Recovery | Released |
-| `v0.16.0` | Patroni S3 Backup And Recovery | Local and AWS recovery passed |
+| [v0.16.0](https://github.com/VlrRbn/postgres-disaster-recovery/releases/tag/v0.16.0) | Patroni S3 Backup And Recovery | Released |
 
 ```text
 empty database volume
@@ -281,6 +281,12 @@ reader authentication, recovery, and shutdown.
 Live AWS verification recovered a timeline-1 backup to timeline 2 using a
 separate reader role while the source cluster was stopped; see
 [AWS recovery evidence](evidence/patroni-s3-aws-acceptance-20261113.md).
+The [clean-host procedure](docs/patroni-ec2-recovery.md) uses a new EC2 host
+and the Patroni reader instance profile to recover without local AWS profiles
+or source database files.
+Clean-host AWS validation recovered all fields of three orders through the
+reader instance profile and preserved a new write after container recreation;
+see [EC2 recovery evidence](evidence/patroni-ec2-recovery-acceptance-20261117.md).
 
 ## Security Defaults
 
@@ -624,7 +630,7 @@ Its own containers, network, three volumes, and temporary secrets are removed.
 | Patroni automatic failover | Released in `v0.13.0` |
 | Stable primary endpoint through HAProxy | Released in `v0.14.0` |
 | Patroni backup and PITR across failover timelines | Released in `v0.15.0` |
-| Patroni S3 backup and recovery without source data mounts | Local API and live AWS recovery passed for `v0.16.0` |
+| Patroni S3 backup and recovery without source data mounts | Released in `v0.16.0`; AWS recovery verified |
 
 See the [delivery roadmap](docs/roadmap.md) for milestone scope,
 [contribution guidelines](CONTRIBUTING.md) for the PR workflow, and

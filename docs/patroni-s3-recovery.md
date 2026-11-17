@@ -175,6 +175,10 @@ any explicit project/directory overrides in your shell.
 
 ## Validation
 
+For restoration on a new host through the reader instance profile, see
+[Patroni EC2 recovery](patroni-ec2-recovery.md). It reuses the existing temporary
+host configuration and the released recovery runtime.
+
 ```bash
 make check
 make patroni-s3-acceptance
@@ -190,12 +194,15 @@ removed afterward; the report stays in `.local/reports/`.
 The fixture verifies S3 API integration and recovery behavior. A live AWS run
 also verified full backups before and after promotion, reader-role access with
 the source stopped, recovery onto the promoted timeline, and retained restored
-writes. That run used profile authentication on the existing Docker host;
-replacement-host recovery and EC2 instance authentication for this backend
-remain unverified. The recovered database does not rebuild etcd, rejoin Patroni,
-schedule backups, or switch application traffic.
+writes. That run used profile authentication on the existing Docker host.
+A follow-up clean EC2 run verified reader instance authentication, exact CSV
+recovery, and restored-write persistence, then removed the temporary host and
+network. EC2 writer operation remains unverified. The recovered database does
+not rebuild etcd, rejoin Patroni, schedule backups, or switch application traffic.
 
 See [acceptance evidence](../evidence/patroni-s3-acceptance-20261112.md) and
 [AWS recovery evidence](../evidence/patroni-s3-aws-acceptance-20261113.md).
+Clean-host validation:
+[EC2 recovery evidence](../evidence/patroni-ec2-recovery-acceptance-20261117.md).
 Configuration reference:
 [pgBackRest S3 configuration](https://pgbackrest.org/configuration.html#section-repository).
