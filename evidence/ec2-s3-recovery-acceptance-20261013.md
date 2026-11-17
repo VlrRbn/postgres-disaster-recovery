@@ -10,6 +10,8 @@
 - EC2 environment: Ubuntu `24.04`, x86_64, Docker `29.1.3`, Compose `2.40.3`
 - AWS account identifiers: anonymized as `123456789012`
 
+Deployment-specific instance identifiers are redacted in this public report.
+
 ## Validation
 
 `make check` passed with 26 unit test methods, shell checks, and local/S3/fixture
@@ -60,7 +62,7 @@ IMDSv2 is required with response hop limit two. The security group defines no
 inbound rules. The host receives an outbound public IPv4 address.
 
 The saved Terraform plan applied successfully: eight resources added,
-zero changed, and zero destroyed. Instance `i-0b435eaefafc30348` registered in
+zero changed, and zero destroyed. Instance `<recovery-instance-id>` registered in
 SSM with agent `3.3.4793.0`. Its bootstrap installed tools without initializing
 PostgreSQL or copying AWS credentials.
 
@@ -87,7 +89,7 @@ repository, passwords, or AWS credential files were transferred.
 | Check | Observed Result |
 | --- | --- |
 | Fresh runtime | No Docker volumes existed before the first restore |
-| AWS identity | `arn:aws:sts::123456789012:assumed-role/postgres-dr-ec2-reader/i-0b435eaefafc30348` |
+| AWS identity | `arn:aws:sts::123456789012:assumed-role/postgres-dr-ec2-reader/<recovery-instance-id>` |
 | IMDSv1 request without token | HTTP `401` |
 | Native pgBackRest S3 restore | Instance `auto` credentials; verified HTTPS; source remained stopped |
 | Recovered data | All nine rows matched the source CSV exactly, including the post-backup WAL insert |

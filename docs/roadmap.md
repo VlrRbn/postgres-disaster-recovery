@@ -20,7 +20,7 @@ names. Each release marks a completed and verified milestone.
 | Patroni Automatic Failover | `v0.13.0` | Released |
 | Stable Primary Endpoint | `v0.14.0` | Released |
 | Patroni Backup And Point-In-Time Recovery | `v0.15.0` | Released |
-| Patroni S3 Backup And Recovery | `v0.16.0` | Local and AWS recovery passed |
+| Patroni S3 Backup And Recovery | `v0.16.0` | Released |
 
 ## Physical Backup Delivery Steps
 
@@ -187,6 +187,16 @@ Live AWS validation also recovered a pre-failover backup onto timeline 2 with
 the source stopped and a separate reader role. The recovered data and a new
 write survived container recreation. See
 [AWS recovery evidence](../evidence/patroni-s3-aws-acceptance-20261113.md).
+
+## Patroni Clean-Host Validation
+
+Follow-up validation of the existing `v0.16.0` runtime passed on a clean EC2 host
+with the dedicated reader instance profile. A timeline-1 backup recovered the
+selected timeline-2 state, every CSV field matched, and a new write survived
+container recreation. Source files and credentials were not transferred.
+The temporary host, network, and SSM attachment were removed. See
+[Patroni clean-host recovery](patroni-ec2-recovery.md) and
+[EC2 evidence](../evidence/patroni-ec2-recovery-acceptance-20261117.md).
 
 ## Acceptance Contracts
 

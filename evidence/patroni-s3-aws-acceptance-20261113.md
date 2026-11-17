@@ -4,11 +4,13 @@
 - Date: `2026-11-13`
 - Source: working changes on `feat/patroni-s3-backups`, based on `1713c4d` (`v0.15.0`)
 - Environment: local Docker Compose with AWS S3 in `eu-west-1`
-- AWS account: `179151669003`
-- Bucket: `vlrrbn-postgres-dr-179151669003-eu-west-1`
+- AWS account identifiers: anonymized as `123456789012`
+- Bucket: `example-postgres-dr-bucket`
 - Repository prefix: `postgres-dr/patroni`
 - Project: `postgres-dr-patroni-s3`
-- Cluster system identifier: `7707597922072338481`
+- Cluster system identifier: redacted
+
+Deployment-specific identifiers are anonymized in this public report.
 
 ## Validation
 
