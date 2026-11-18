@@ -1,15 +1,69 @@
 # PostgreSQL Disaster Recovery
 
-A PostgreSQL disaster recovery and replication project built in verifiable
-milestones. It combines a digest-pinned database image, WAL archiving, physical
-backups, PITR, recovery measurement, AWS S3 storage, clean-host EC2 recovery,
-streaming replication with verified TLS, controlled switchover with replica
-rejoin, optional scheduled backups and health checks, Telegram/email alerting,
-and a separate Patroni/etcd runtime for automatic failover.
+PostgreSQL failover and disaster recovery with reproducible Docker Compose
+environments and verified recovery from AWS S3 on a clean EC2 host.
+
+The main scenario combines Patroni election, a stable HAProxy endpoint, and
+pgBackRest backups with archived WAL. A backup taken before failover can recover
+deleted data to a selected point on the promoted timeline.
+
+## Start Here
+
+| Goal | Guide |
+| --- | --- |
+| Run failover and PITR locally | [Local demo](docs/demo.md) — synthetic orders, no AWS account required |
+| Inspect roles, TLS, and coordination | [Patroni operations](docs/patroni.md) |
+| Recover a pre-failover backup | [Backup and PITR](docs/patroni-recovery.md) |
+| Store backups outside the source host | [Patroni S3 repository](docs/patroni-s3-recovery.md) |
+| Recover on a new EC2 host with a reader role | [Clean-host procedure](docs/patroni-ec2-recovery.md) |
+
+## Architecture
+
+```mermaid
+flowchart LR
+    client["SQL client"]
+    subgraph source["One source Docker host"]
+        proxy["HAProxy<br/>primary endpoint"]
+        pg["PostgreSQL + Patroni<br/>pg1 and pg2<br/>one primary, one replica"]
+        dcs["etcd<br/>three-member quorum"]
+        localrepo["Local pgBackRest volume<br/>default backend"]
+        proxy -->|"TCP passthrough"| pg
+        proxy -.->|"Verified HTTPS role checks"| pg
+        pg <-->|"Coordination over mutual TLS"| dcs
+        pg -->|"Full backups and WAL"| localrepo
+    end
+    client -->|"PostgreSQL TLS"| proxy
+    pg -->|"Optional S3 backend"| s3["AWS S3<br/>dedicated repository prefix"]
+    localrepo -->|"Same-host PITR"| restored["Standalone PostgreSQL<br/>separate recovery volume"]
+    s3 -->|"PITR on local or clean EC2 host"| restored
+```
+
+Primary and replica roles can move between `pg1` and `pg2`. SQL TLS terminates
+at PostgreSQL. Backup commands select the current primary, which runs pgBackRest
+and archives WAL. Local and S3 storage are alternative backends in separate
+Compose projects. EC2 recovery uses the prefix-scoped reader instance profile
+and IMDSv2.
+
+The source cluster shares one host, uses asynchronous replication, and has one
+HAProxy endpoint. A failover can lose acknowledged writes. Restoring data creates
+a separate database; replacing the live primary and switching application
+traffic are separate procedures.
+
+| Verified behavior | Evidence |
+| --- | --- |
+| Election, acknowledged-write loss, rejoin, and quorum recovery | [Patroni acceptance](evidence/patroni-acceptance-20261103.md) |
+| Stable endpoint and verified TLS through role changes | [HAProxy acceptance](evidence/patroni-endpoint-acceptance-20261103.md) |
+| Cross-timeline PITR through a separate S3 reader role | [AWS S3 recovery](evidence/patroni-s3-aws-acceptance-20261113.md) |
+| Clean EC2 recovery, exact CSV comparison, retained writes, and cleanup | [EC2 recovery](evidence/patroni-ec2-recovery-acceptance-20261117.md) |
 
 ## Project Status
 
+Latest capability release: [v0.16.0](https://github.com/VlrRbn/postgres-disaster-recovery/releases/tag/v0.16.0).
+
 Capability milestones include local Docker runtimes and verified AWS recovery:
+
+<details>
+<summary>Release history</summary>
 
 | Release | Capability | Status |
 | --- | --- | --- |
@@ -30,6 +84,8 @@ Capability milestones include local Docker runtimes and verified AWS recovery:
 | [v0.14.0](https://github.com/VlrRbn/postgres-disaster-recovery/releases/tag/v0.14.0) | Stable Primary Endpoint | Released |
 | [v0.15.0](https://github.com/VlrRbn/postgres-disaster-recovery/releases/tag/v0.15.0) | Patroni Backup And Point-In-Time Recovery | Released |
 | [v0.16.0](https://github.com/VlrRbn/postgres-disaster-recovery/releases/tag/v0.16.0) | Patroni S3 Backup And Recovery | Released |
+
+</details>
 
 ```text
 empty database volume
