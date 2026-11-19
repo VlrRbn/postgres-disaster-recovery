@@ -3,7 +3,21 @@
 Public commits, pull requests, releases, and README sections use capability
 names. Each release marks a completed and verified milestone.
 
-| Public capability | Planned release | State |
+## v1.0.0 Baseline
+
+The [stable project baseline](releases/v1.0.0.md) consolidates the capabilities
+below, clean-host Patroni recovery validation, and the local demo. Its documented
+operational commands and required configuration names are the public interface
+under the [version policy](releasing.md#version-policy).
+
+The baseline preserves the existing runtime and its tested limits. It does not
+add another deployment mode or change database behavior. Future work follows
+concrete requirements while keeping the published interface compatible within
+the major version.
+
+## Capability History
+
+| Public capability | Release | State |
 | --- | --- | --- |
 | Local PostgreSQL Foundation | `v0.1.0` | Released |
 | Physical Backup And Restore | `v0.2.0` | Released |
