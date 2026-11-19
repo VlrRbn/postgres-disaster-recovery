@@ -58,12 +58,14 @@ traffic are separate procedures.
 
 ## Project Status
 
-Latest capability release: [v0.16.0](https://github.com/VlrRbn/postgres-disaster-recovery/releases/tag/v0.16.0).
+Project baseline: **[v1.0.0](docs/releases/v1.0.0.md)**. It collects the implemented
+workflows, validation, and documented interface. Tagged snapshots are listed
+under [published releases](https://github.com/VlrRbn/postgres-disaster-recovery/releases).
 
 Capability milestones include local Docker runtimes and verified AWS recovery:
 
 <details>
-<summary>Release history</summary>
+<summary>Earlier capability releases (v0.x)</summary>
 
 | Release | Capability | Status |
 | --- | --- | --- |
