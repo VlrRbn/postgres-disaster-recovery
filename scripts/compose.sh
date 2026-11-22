@@ -101,6 +101,10 @@ case "${PGDR_REPOSITORY:-local}" in
         ;;
     local)
         project=${PGDR_PROJECT:-postgres-dr-local}
+        if [[ "$project" =~ ^postgres-dr-(s3|patroni|replication)($|-) ]]; then
+            echo 'Local mode cannot use project names reserved for S3, Patroni or replication; choose another PGDR_PROJECT.' >&2
+            exit 2
+        fi
         config="$root/compose.yaml"
         export PGDR_SECRET_FILE=${PGDR_SECRET_FILE:-$root/.local/postgres_password}
         ;;
@@ -116,7 +120,7 @@ case "${PGDR_REPOSITORY:-local}" in
         ;;
     *) echo 'PGDR_REPOSITORY must be local, s3 or patroni.' >&2; exit 2 ;;
 esac
-# Validate the project before forwarding any operator command to Docker.
+# Validate the project before forwarding the command to Docker.
 if [[ ! "$project" =~ ^postgres-dr-[a-z0-9-]+$ ]]; then
     echo 'PGDR_PROJECT must start with postgres-dr- and use lowercase letters, digits or hyphens.' >&2
     exit 1

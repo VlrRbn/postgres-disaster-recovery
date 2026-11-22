@@ -1,6 +1,9 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+# Nested Make must keep this scenario's temporary settings, not outer CLI overrides.
+unset MAKEFLAGS MFLAGS MAKEOVERRIDES
+
 root=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
 work=$(mktemp -d)
 PGDR_REPLICATION_PROJECT="postgres-dr-replication-test-$(date +%s)-$$"

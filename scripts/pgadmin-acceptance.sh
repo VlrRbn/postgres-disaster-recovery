@@ -1,6 +1,12 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+# Nested Make must keep this scenario's temporary settings, not outer CLI overrides.
+unset MAKEFLAGS MFLAGS MAKEOVERRIDES
+
+# Keep startup and cleanup independent of inherited runtime settings.
+export PGDR_REPOSITORY=local PGDR_S3_FIXTURE=0
+
 root=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
 work=$(mktemp -d)
 PGDR_PROJECT="postgres-dr-ui-test-$(date +%s)-$$"
