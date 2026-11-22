@@ -697,6 +697,11 @@ See the [delivery roadmap](docs/roadmap.md) for milestone scope,
 ## Safety Boundary
 
 The interactive lab uses Compose project `postgres-dr-local` by default.
+Local `PGDR_PROJECT` overrides must start with `postgres-dr-` and contain only
+lowercase letters, digits, or hyphens. The names `postgres-dr-s3`,
+`postgres-dr-patroni`, `postgres-dr-replication`, and their `-*` children are
+reserved for those runtimes; the local backend rejects them before calling Docker.
+
 `make acceptance` creates its own temporary project, password, and three volumes.
 Its exit handler removes those test resources; if cleanup fails, it reports the
 project and retained secret path for manual inspection. It does not use the
@@ -704,6 +709,25 @@ interactive lab's volumes. The corruption test modifies only a file in the
 disposable backup repository and replaces it with the saved original before
 the final integrity check. The missing-WAL test temporarily withholds one
 segment in that same disposable repository, then puts it back.
+
+Local foundation, RPO, backup-health (including scheduling), and pgAdmin acceptance
+scenarios explicitly select the local backend and disable the S3 fixture before
+installing cleanup handlers. Inherited runtime settings cannot redirect their
+startup or cleanup to an existing S3, Patroni, or replication project.
+
+pgAdmin, scheduling, and manual replication acceptance also clear `MAKEFLAGS`,
+`MFLAGS`, and `MAKEOVERRIDES` before invoking nested Make commands. Variables
+passed on the outer Make command line cannot replace the scenario's temporary
+project, local backend, secret paths, or notification configuration.
+
+The eight runtime-isolation tests cover inherited environment settings and
+12 command-line override combinations through real Make, the production
+Makefile, and the public `pgadmin-acceptance` and `schedule-acceptance` targets.
+Docker and AWS remain stubbed. They check one temporary project and unchanged
+temporary settings throughout startup, nested jobs, and cleanup, including an
+injected nested backup failure. pgAdmin stops at an injected startup failure
+before browser checks. Both new Make tests detected the bypass before the fix.
+These tests verify command routing.
 
 `make down` retains all interactive volumes. Initialization SQL runs only when
 the volume is empty, so editing the SQL file does not migrate an existing database.
@@ -732,8 +756,8 @@ Backup health can run on demand or through the optional local timer. Optional
 Telegram and SMTP delivery reports completed local scheduled jobs when configured;
 no recipients are enabled by default. This runs on the same host and cannot
 independently detect host or scheduler outages. User-manager lifetime, database
-availability, and host uptime govern execution; lingering is an explicit operator
-choice.
+availability, and host uptime govern execution; lingering must be enabled
+explicitly.
 
 The replication runtime also shares one Docker host and uses asynchronous WAL
 over verified TLS with a local CA. It has no automated certificate renewal or

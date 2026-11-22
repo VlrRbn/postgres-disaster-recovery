@@ -1,6 +1,12 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+# Nested Make must keep this scenario's temporary settings, not outer CLI overrides.
+unset MAKEFLAGS MFLAGS MAKEOVERRIDES
+
+# Keep startup and cleanup independent of inherited runtime settings.
+export PGDR_REPOSITORY=local PGDR_S3_FIXTURE=0
+
 root=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
 schedule=false
 stages=6
@@ -13,10 +19,10 @@ work=$(mktemp -d)
 PGDR_PROJECT="postgres-dr-health-test-$(date +%s)-$$"
 export PGDR_PROJECT
 export PGDR_SECRET_FILE="$work/postgres_password"
-# Never use the operator's alert recipients in a disposable acceptance run.
+# Never use existing alert recipients in a disposable acceptance run.
 export PGDR_ALERT_CONFIG="$work/alerts.json"
 export PGDR_ALERT_STATE_DIR="$work/alert-state"
-# Explicit limits keep the scenario independent of interactive operator settings.
+# Explicit limits keep the scenario independent of existing runtime settings.
 export PGDR_BACKUP_MAX_AGE_SECONDS=86400
 export PGDR_ARCHIVE_TIMEOUT_SECONDS=5
 compose=(bash "$root/scripts/compose.sh")
