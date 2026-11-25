@@ -418,8 +418,32 @@ def open_endpoint_session(cluster: Cluster):
 
 
 def exercise(cluster: Cluster) -> dict:
-    print('[1/8] Start isolated Patroni and three-member etcd cluster', flush=True)
-    subprocess.run(['bash', str(ROOT / 'scripts/patroni.sh'), 'up'], cwd=ROOT, env=cluster.env, check=True)
+    print('[1/8] Reject a single etcd member, then bootstrap from a fresh two-member quorum', flush=True)
+    subprocess.run(['bash', str(ROOT / 'scripts/setup.sh'), 'patroni'], cwd=ROOT, env=cluster.env, check=True)
+    cluster.compose('build', 'pg1')
+    cluster.compose('up', '--no-build', '--detach', 'etcd1', *NODES, 'haproxy')
+    single = subprocess.run(['timeout', '8', 'bash', str(ROOT / 'scripts/patroni.sh'), 'wait-ready'],
+                            cwd=ROOT, env=cluster.env, capture_output=True, text=True, timeout=20)
+    assert single.returncode == 124, 'Readiness accepted a fresh DCS without quorum'
+    assert cluster.endpoint_result('SELECT 1').returncode != 0
+    cluster.compose('up', '--no-build', '--detach', 'etcd2')
+    subprocess.run(['timeout', '180', 'bash', str(ROOT / 'scripts/patroni.sh'), 'wait-ready'],
+                   cwd=ROOT, env=cluster.env, check=True, timeout=195)
+    # The third member has never run: its missing version must not select /v3alpha.
+    versions = cluster.compose('exec', '-T', 'pg1', 'python3', '-c', '''
+import json, ssl
+from urllib.request import urlopen
+context = ssl.create_default_context(cafile='/var/lib/postgresql/patroni/tls/ca.crt')
+context.load_cert_chain('/var/lib/postgresql/patroni/tls/etcd-client.crt',
+                        '/var/lib/postgresql/patroni/tls/etcd-client.key')
+with urlopen('https://etcd1:2379/version', context=context, timeout=3) as response:
+    print(json.dumps(json.load(response)))
+''')
+    bootstrap_versions = json.loads(versions.stdout)
+    assert bootstrap_versions['etcdserver'].startswith('3.6.')
+    assert bootstrap_versions['etcdcluster'] == '3.0.0', bootstrap_versions
+    cluster.endpoint_sql("INSERT INTO orders (reference, amount_cents) VALUES ('bootstrap-quorum',1); DELETE FROM orders WHERE reference='bootstrap-quorum'")
+    cluster.compose('up', '--no-build', '--detach', '--wait', '--wait-timeout', '60', 'etcd3')
     wait_for('one primary and one streaming replica', cluster.healthy)
     source = cluster.leader()
     replica = next(node for node in NODES if node != source)
@@ -504,6 +528,8 @@ def exercise(cluster: Cluster) -> dict:
     print('PASS: recreated TLS/access controls and role-aware SQL helpers', flush=True)
     return {'schema_version': 1, 'status': 'verified', 'project': cluster.project,
             'scenario': 'patroni_automatic_failover', 'acknowledged_orders': len(acknowledged),
+            'fresh_bootstrap_etcd_members': 2, 'single_member_bootstrap_rejected': True,
+            'bootstrap_etcd_versions': bootstrap_versions,
             'recovered_orders': len(recovered), 'lost_orders': lost,
             'observed_failover_seconds': round(failover_seconds, 3),
             'observed_endpoint_recovery_seconds': round(endpoint_recovery_seconds, 3),

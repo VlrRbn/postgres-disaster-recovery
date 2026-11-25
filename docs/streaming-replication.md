@@ -241,6 +241,10 @@ permits startup of the new primary. Existing standby volumes must belong to this
 no automatic identity reconciliation or repair is attempted. Changing a password
 file does not rotate a role password inside an existing primary.
 
+The primary readiness check uses TCP on `127.0.0.1`. The temporary Unix-socket-only
+server used during first-time initialization must not release the standby's
+startup dependency: `pg_basebackup` needs the final server's TCP listener.
+
 ## Acceptance
 
 ```bash

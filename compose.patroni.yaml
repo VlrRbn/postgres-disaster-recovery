@@ -28,10 +28,7 @@ x-postgres: &postgres
   image: '${PGDR_PATRONI_IMAGE:-postgres-dr-patroni-postgres:local}'
   entrypoint: [bash, /opt/patroni.sh, start-node]
   command: []
-  depends_on:
-    etcd1: {condition: service_healthy}
-    etcd2: {condition: service_healthy}
-    etcd3: {condition: service_healthy}
+  # Patroni retries DCS connections itself; a failed member must not block quorum.
   healthcheck:
     test: [CMD, python3, /opt/patroni_config.py, probe, health]
     interval: 3s
@@ -112,9 +109,7 @@ services:
       - {source: ca, target: ca.crt}
     ports:
       - '127.0.0.1:${PGDR_PATRONI_PORT:-6432}:5432'
-    depends_on:
-      pg1: {condition: service_healthy}
-      pg2: {condition: service_healthy}
+    # HAProxy probes each backend; one failed database must not block the endpoint.
     healthcheck:
       test: [CMD, haproxy, -c, -f, /usr/local/etc/haproxy/haproxy.cfg]
       interval: 5s
