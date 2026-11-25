@@ -53,6 +53,30 @@ separate project and repository prefix; the local backend remains the default.
 Either `pg1` or `pg2` can become leader. The three etcd members need a majority
 of two for leader coordination.
 
+Startup does not require every member to be healthy. Patroni nodes retry DCS
+connections and HAProxy probes both database backends independently. `patroni-up`
+waits for at least two healthy etcd members, exactly one verified `/primary`
+response (including the leader lease), and a successful TLS SQL query through
+HAProxy to a database out of recovery. One failed etcd member or PostgreSQL node
+therefore does not block the usable cluster. With one PostgreSQL node unavailable,
+there is no working replica until it rejoins.
+
+The same quorum rule applies to a fresh DCS: two members can bootstrap while
+the third is unavailable. The image applies a checked compatibility patch to
+Patroni 4.1.5: the etcd gateway route follows the serving server's version,
+while the reported cluster feature version stays unchanged. This avoids the
+legacy `/v3alpha` route when etcd 3.6 temporarily reports cluster version 3.0.
+The build checks eight version combinations and refuses a changed patch target;
+review this patch when upgrading Patroni. A single etcd member cannot bootstrap
+the configured three-member cluster. The missing member can join afterward.
+
+The readiness deadline defaults to 180 seconds; set
+`PGDR_PATRONI_WAIT_SECONDS=1..300` to adjust it. Missing quorum, no unique primary,
+or an unavailable SQL endpoint returns failure with container status and logs.
+Containers and data are retained for inspection. The same startup checks apply
+to the S3 backend. They check availability; use `patroni-status` to inspect the
+health of individual members.
+
 ## Write And Read
 
 ```bash
@@ -237,6 +261,10 @@ make patroni-acceptance
 The disposable scenario checks replication, read-only enforcement, verified TLS,
 REST authentication, certificate mounts, automatic failover, former-leader
 recovery, single-member etcd loss, majority loss/restoration, and recreation.
+It first rejects startup and SQL access with a single etcd member, then boots
+the fresh cluster with two members while etcd still reports cluster version
+3.0. The third member starts only after a verified SQL write succeeds through
+HAProxy. This also exercises the image's gateway compatibility patch.
 All 25 workload inserts go through HAProxy. It also verifies client rejection
 of plaintext, wrong server identity, and untrusted certificates; separate proxy
 fixtures reject wrong-CA and wrong-host HTTPS checks.
@@ -256,8 +284,9 @@ that an established session breaks and a new session reaches the promoted node.
 Test containers, networks, volumes, and temporary credentials are removed.
 Cleanup failure retains the private directory and reports its path.
 
-See [Patroni acceptance evidence](../evidence/patroni-acceptance-20261103.md)
-and [HAProxy endpoint evidence](../evidence/patroni-endpoint-acceptance-20261103.md).
+See [Patroni acceptance evidence](../evidence/patroni-acceptance-20261103.md),
+[HAProxy endpoint evidence](../evidence/patroni-endpoint-acceptance-20261103.md),
+and [fresh-quorum bootstrap evidence](../evidence/patroni-bootstrap-acceptance-20261125.md).
 
 ## References
 
@@ -265,5 +294,7 @@ and [HAProxy endpoint evidence](../evidence/patroni-endpoint-acceptance-20261103
 - [Patroni replication modes](https://patroni.readthedocs.io/en/latest/replication_modes.html)
 - [Patroni watchdog limits](https://patroni.readthedocs.io/en/latest/watchdog.html)
 - [etcd transport security](https://etcd.io/docs/v3.6/op-guide/security/)
+- [etcd gateway API versions](https://etcd.io/docs/v3.6/dev-guide/api_grpc_gateway/)
+- [Pinned Patroni gateway selection](https://github.com/patroni/patroni/blob/v4.1.5/patroni/dcs/etcd3.py#L260-L283)
 - [Patroni role endpoints](https://patroni.readthedocs.io/en/latest/rest_api.html)
 - [HAProxy configuration](https://docs.haproxy.org/3.2/configuration.html)

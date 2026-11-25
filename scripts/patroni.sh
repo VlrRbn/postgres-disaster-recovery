@@ -63,6 +63,36 @@ endpoint_client() (
         psql -X -v ON_ERROR_STOP=1 -h haproxy -p 5432 -U postgres -d orders "$@"
 )
 
+wait_ready() {
+    local node container status quorum primaries endpoint
+    while true; do
+        quorum=0
+        primaries=0
+        for node in etcd1 etcd2 etcd3; do
+            container=$("${compose[@]}" ps --all --quiet "$node") || return 1
+            if [[ -n "$container" ]]; then
+                status=$(docker inspect "$container" --format '{{.State.Running}} {{if .State.Health}}{{.State.Health.Status}}{{end}}') || return 1
+                if [[ "$status" == 'true healthy' ]]; then quorum=$((quorum + 1)); fi
+            fi
+        done
+        if (( quorum >= 2 )); then
+            for node in pg1 pg2; do
+                if "${compose[@]}" exec -T "$node" python3 /opt/patroni_config.py probe primary >/dev/null 2>&1; then
+                    primaries=$((primaries + 1))
+                fi
+            done
+            # /primary requires the leader lease. SQL also checks real TLS routing,
+            # unlike HAProxy's configuration-only container healthcheck.
+            if (( primaries == 1 )) && endpoint=$("${compose[@]}" run --rm --no-deps -T \
+                --user "$(id -u):$(id -g)" client -Atq -c 'SELECT NOT pg_is_in_recovery()' 2>/dev/null) && [[ "$endpoint" == t ]]; then
+                echo "Patroni is ready: etcd quorum $quorum/3, one primary, verified SQL through HAProxy."
+                return 0
+            fi
+        fi
+        sleep 1
+    done
+}
+
 case "${1:-}" in
     start-node) start_node ;;
     endpoint-client) shift; endpoint_client "$@" ;;
@@ -72,10 +102,22 @@ case "${1:-}" in
         pgbackrest --stanza=orders stanza-create
         ;;
     up)
+        wait_seconds=${PGDR_PATRONI_WAIT_SECONDS:-180}
+        if [[ ! "$wait_seconds" =~ ^[1-9][0-9]{0,2}$ ]] || (( wait_seconds > 300 )); then
+            echo 'PGDR_PATRONI_WAIT_SECONDS must be an integer from 1 to 300.' >&2
+            exit 2
+        fi
         bash "$root/scripts/setup.sh" patroni
         "${compose[@]}" build pg1
-        "${compose[@]}" up --no-build --detach --wait --wait-timeout 180
+        "${compose[@]}" up --no-build --detach
+        if ! timeout "$wait_seconds" bash "$root/scripts/patroni.sh" wait-ready; then
+            echo 'Patroni startup failed: require etcd quorum, exactly one leased primary and SQL through HAProxy.' >&2
+            "${compose[@]}" ps --all >&2 || true
+            "${compose[@]}" logs --no-color --tail 30 >&2 || true
+            exit 1
+        fi
         ;;
+    wait-ready) wait_ready ;;
     status)
         "${compose[@]}" ps --all
         for node in pg1 pg2; do

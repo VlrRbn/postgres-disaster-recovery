@@ -111,7 +111,7 @@ replication-acceptance: ## Test streaming, outages, controlled promotion and rej
 patroni-setup: ## Generate or validate private Patroni passwords and TLS identities without starting services
 	bash scripts/setup.sh patroni
 
-patroni-up: ## Start or resume two Patroni nodes and a three-member etcd cluster
+patroni-up: ## Start or resume Patroni; wait for etcd quorum, one primary and SQL through HAProxy
 	bash scripts/patroni.sh up
 
 patroni-down: ## Remove Patroni and restore containers/networks; retain all data and private files
